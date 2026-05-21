@@ -1,19 +1,15 @@
 #pragma once
-#include "protocol_2026.h"
-#include <WS2tcpip.h>
-#include <MSWSock.h>
-#include <iostream>
-#include <unordered_map>
-#include <vector>
-#include <thread>
-#include <mutex>
-#include <chrono>
-#include <queue>
-#include <unordered_set>
-#include <tbb/concurrent_unordered_map.h>
+#include "common.h"
+#include "SESSION.h"
 
-#pragma comment(lib, "MSWSock.lib")
-#pragma comment(lib, "WS2_32.lib")
+constexpr int VIEW_RANGE = 15;
+constexpr int SECTOR_SIZE = 10;
+
+tbb::concurrent_unordered_map<int, std::shared_ptr<SESSION>> clients;
+tbb::concurrent_unordered_map<int, std::unordered_set<int>> sectors;
+
+SOCKET g_server;
+HANDLE g_iocp;
 
 
 void error_display(const wchar_t* msg, int err_no)
@@ -28,4 +24,11 @@ void error_display(const wchar_t* msg, int err_no)
 	std::wcout << msg;
 	std::wcout << L" === ¿¡·¯ " << lpMsgBuf << std::endl;
 	LocalFree(lpMsgBuf);
+}
+
+inline int get_sector_id(short x, short y)
+{
+	int sector_x = x / SECTOR_SIZE;
+	int sector_y = y / SECTOR_SIZE;
+	return sector_y * ((WORLD_WIDTH / SECTOR_SIZE) + 1) + sector_x;
 }

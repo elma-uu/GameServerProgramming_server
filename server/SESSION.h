@@ -1,5 +1,5 @@
 #pragma once
-#include "pch.h"
+#include "common.h"
 #include "EXP_OVER.h"
 
 enum CL_STATE { CS_CONNECT, CS_PLAYING, CS_LOGOUT };

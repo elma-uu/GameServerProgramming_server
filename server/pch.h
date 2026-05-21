@@ -9,6 +9,7 @@
 #include <mutex>
 #include <chrono>
 #include <queue>
+#include <unordered_set>
 #include <tbb/concurrent_unordered_map.h>
 
 #pragma comment(lib, "MSWSock.lib")

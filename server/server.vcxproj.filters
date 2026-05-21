@@ -13,10 +13,22 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="EXP_OVER">
+      <UniqueIdentifier>{5631a9fd-bbbc-49a6-9e36-8495b85640ef}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="SESSION">
+      <UniqueIdentifier>{4d1355f7-302a-4b1b-afb2-3258f99a2cbd}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
       <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="EXP_OVER.cpp">
+      <Filter>EXP_OVER</Filter>
+    </ClCompile>
+    <ClCompile Include="SESSION.cpp">
+      <Filter>SESSION</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -24,6 +36,15 @@
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="pch.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="EXP_OVER.h">
+      <Filter>EXP_OVER</Filter>
+    </ClInclude>
+    <ClInclude Include="SESSION.h">
+      <Filter>SESSION</Filter>
+    </ClInclude>
+    <ClInclude Include="common.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
   </ItemGroup>

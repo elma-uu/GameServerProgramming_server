@@ -8,6 +8,9 @@ constexpr int SECTOR_SIZE = 10;
 tbb::concurrent_unordered_map<int, std::shared_ptr<SESSION>> clients;
 tbb::concurrent_unordered_map<int, std::unordered_set<int>> sectors;
 
+enum CL_STATE { CS_CONNECT, CS_PLAYING, CS_LOGOUT };
+
+
 SOCKET g_server;
 HANDLE g_iocp;
 

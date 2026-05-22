@@ -34,5 +34,5 @@ public:
 	void sendAddPlayer(int player_id);
 	void sendRemovePlayer(int player_id);
 	void sendMovePacket(int mover);
-	void processPacket(unsigned char* p);
+	bool processPacket(unsigned char* p);
 };

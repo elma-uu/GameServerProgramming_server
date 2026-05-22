@@ -32,6 +32,8 @@ SESSION::SESSION(int id, bool isPlayer)
 
 SESSION::~SESSION()
 {
+	if(mClient != INVALID_SOCKET)
+		closesocket(mClient);
 }
 
 void SESSION::sendLoginSuccess()
@@ -62,6 +64,9 @@ void SESSION::sendMovePacket(int mover)
 {
 }
 
-void SESSION::processPacket(unsigned char* p)
+bool SESSION::processPacket(unsigned char* p)
 {
+	if (not is_player) return true;
+
+	PACKET_TYPE type = *reinterpret_cast<PACKET_TYPE*>(&p[1]);
 }

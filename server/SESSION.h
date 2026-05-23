@@ -15,6 +15,10 @@ public:
 	short mX, mY;
 	int mMove_time;
 	int mSector_id;
+	int mHp;
+	int mMaxHp;
+	unsigned long long mExp;
+	unsigned char mLevel;
 	std::unordered_set<int> m_visible_players;
 	std::unordered_set<int> m_visible_npcs;
 	std::mutex m_visible_mutex;

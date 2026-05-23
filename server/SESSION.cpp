@@ -88,8 +88,13 @@ void SESSION::sendAvatarInfo()
 	packet.size = sizeof(S2C_AvatarInfo);
 	packet.type = S2C_AVATAR_INFO;
 	packet.playerId = mId;
+	packet.visualId = 0;
 	packet.x = mX;
 	packet.y = mY;
+	packet.exp = 0;
+	packet.level = 1;
+	packet.hp = 100;
+	packet.max_hp = 100;
 	doSend(packet.size, reinterpret_cast<char*>(&packet));
 }
 
@@ -105,7 +110,10 @@ void SESSION::sendAddPlayer(int player_id)
 	memcpy(packet.obj_name, pl->mUsername, sizeof(packet.obj_name));
 	packet.x = pl->mX;
 	packet.y = pl->mY;
-
+	packet.exp = pl->mExp;
+	packet.level = pl->mLevel;
+	packet.hp = pl->mHp;
+	packet.max_hp = pl->mMaxHp;
 	m_visible_mutex.lock();
 	if (m_visible_players.count(player_id) > 0) {
 		m_visible_mutex.unlock();

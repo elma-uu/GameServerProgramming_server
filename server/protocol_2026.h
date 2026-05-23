@@ -11,6 +11,8 @@ constexpr int MAX_NAME_LEN = 20;
 constexpr int MAX_CHAT_MSG_LEN = 200;
 constexpr int MAX_BUF_SIZE = 1024;
 
+enum DIRECTION { UP, DOWN, LEFT, RIGHT };
+
 enum PACKET_TYPE { 
 	C2S_LOGIN,			// Client to Server: Login request
 						// 사용자 이름을 포함한 로그인 요청 패킷	
@@ -45,6 +47,7 @@ struct C2S_Login {
 struct C2S_Move {
 	unsigned char size;
 	PACKET_TYPE   type;
+	DIRECTION dir;
 	short x;
 	short y;
 	int move_time; // in milliseconds

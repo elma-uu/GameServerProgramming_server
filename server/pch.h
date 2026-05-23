@@ -6,27 +6,15 @@ class SESSION;
 constexpr int VIEW_RANGE = 15;
 constexpr int SECTOR_SIZE = 15;
 
-tbb::concurrent_unordered_map<int, std::shared_ptr<SESSION>> clients;
-tbb::concurrent_unordered_map<int, std::unordered_set<int>> sectors;
+extern tbb::concurrent_unordered_map<int, std::shared_ptr<SESSION>> clients;
+extern tbb::concurrent_unordered_map<int, std::unordered_set<int>> sectors;
 
 
-SOCKET g_server;
-HANDLE g_iocp;
+extern SOCKET g_server;
+extern HANDLE g_iocp;
 
 
-void error_display(const wchar_t* msg, int err_no)
-{
-	WCHAR* lpMsgBuf;
-	FormatMessage(
-		FORMAT_MESSAGE_ALLOCATE_BUFFER |
-		FORMAT_MESSAGE_FROM_SYSTEM,
-		NULL, err_no,
-		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-		(LPTSTR)&lpMsgBuf, 0, NULL);
-	std::wcout << msg;
-	std::wcout << L" === ¿¡·¯ " << lpMsgBuf << std::endl;
-	LocalFree(lpMsgBuf);
-}
+void error_display(const wchar_t* msg, int err_no);
 
 //---------
 // Sector

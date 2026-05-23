@@ -8,6 +8,7 @@ constexpr int SECTOR_SIZE = 15;
 
 extern tbb::concurrent_unordered_map<int, std::shared_ptr<SESSION>> clients;
 extern tbb::concurrent_unordered_map<int, std::unordered_set<int>> sectors;
+extern std::atomic<int> player_index;
 
 
 extern SOCKET g_server;

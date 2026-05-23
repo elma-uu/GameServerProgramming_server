@@ -168,16 +168,26 @@ bool SESSION::processPacket(unsigned char* p)
 		C2S_Login* packet = reinterpret_cast<C2S_Login*>(p);
 		strncpy_s(mUsername, packet->username, MAX_NAME_LEN);
 		std::cout << "Player[" << mId << "] logged in as " << mUsername << std::endl;
+
+		// Initialize sector
+		int initial_sector_id = get_sector_id(mX, mY);
+		sectors[initial_sector_id].insert(mId);
+		mSector_id = initial_sector_id;
+
 		sendAvatarInfo();
 		mState = CS_PLAYING;
 
-		for (auto cla : clients)
+		// Get visible players from sectors
+		std::unordered_set<int> new_v_players;
+		get_visible_players_from_sectors(new_v_players);
+
+		// Send add player packets for visible players
+		for (int id : new_v_players)
 		{
-			if (cla.second->mState == CS_PLAYING && cla.first != mId)
-			{
-				sendAddPlayer(cla.first);
-				cla.second->sendAddPlayer(mId);
-			}
+			sendAddPlayer(id);
+			std::shared_ptr<SESSION> pl = clients[id];
+			if (nullptr == pl) continue;
+			pl->sendAddPlayer(mId);
 		}
 
 	}

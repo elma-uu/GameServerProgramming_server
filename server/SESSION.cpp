@@ -6,6 +6,7 @@ tbb::concurrent_unordered_map<int, std::shared_ptr<SESSION>> clients;
 tbb::concurrent_unordered_map<int, std::unordered_set<int>> sectors;
 SOCKET g_server;
 HANDLE g_iocp;
+std::atomic<int> player_index = 1;
 
 void error_display(const wchar_t* msg, int err_no)
 {

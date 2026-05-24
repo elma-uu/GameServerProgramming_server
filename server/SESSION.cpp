@@ -207,17 +207,34 @@ bool SESSION::processPacket(unsigned char* p)
 	{
 		C2S_Move* packet = reinterpret_cast<C2S_Move*>(p);
 		DIRECTION dir = packet->dir;
+		short client_x = packet->x;
+		short client_y = packet->y;
 		mMove_time = packet->move_time;
 
-		auto old_v_players = m_visible_players;
-		auto old_v_npcs = m_visible_npcs;
+		// Calculate expected position based on direction
+		short expected_x = mX;
+		short expected_y = mY;
 
 		switch (dir) {
-		case UP: mY = max(0, mY - 1); break;
-		case DOWN: mY = min(WORLD_HEIGHT - 1, mY + 1); break;
-		case LEFT: mX = max(0, mX - 1); break;
-		case RIGHT: mX = min(WORLD_WIDTH - 1, mX + 1); break;
+		case UP: expected_y = max(0, mY - 1); break;
+		case DOWN: expected_y = min(WORLD_HEIGHT - 1, mY + 1); break;
+		case LEFT: expected_x = max(0, mX - 1); break;
+		case RIGHT: expected_x = min(WORLD_WIDTH - 1, mX + 1); break;
 		}
+
+		// Anti-cheat: Verify client position matches server calculation
+		if (client_x != expected_x || client_y != expected_y) {
+			std::cout << "Position mismatch for player[" << mId << "]: " 
+				<< "Client(" << client_x << "," << client_y << ") != "
+				<< "Server(" << expected_x << "," << expected_y << ")" << std::endl;
+			// Optionally disconnect the client for suspicious movement
+			// For now, we'll use server's calculation
+		}
+
+		mX = expected_x;
+		mY = expected_y;
+
+		auto old_v_players = m_visible_players;
 
 		int new_sector_id = get_sector_id(mX, mY);
 		if (new_sector_id != mSector_id) {
@@ -227,25 +244,26 @@ bool SESSION::processPacket(unsigned char* p)
 		}
 
 		std::unordered_set<int> new_v_players;
-		std::unordered_set<int> new_v_npcs;
 		get_visible_players_from_sectors(new_v_players);
 
-		sendMovePacket(mId);
-
+		// Send move to visible players
 		for (int id : new_v_players) {
 			if (old_v_players.count(id) == 0) {
+				// New player came into view
 				sendAddPlayer(id);
 				std::shared_ptr<SESSION> pl = clients[id];
 				if (nullptr == pl) continue;
 				pl->sendAddPlayer(mId);
 			}
 			else {
+				// Player still in view - send move update
 				std::shared_ptr<SESSION> pl = clients[id];
 				if (nullptr == pl) continue;
 				pl->sendMovePacket(mId);
 			}
 		}
 
+		// Remove players out of view
 		for (int id : old_v_players) {
 			if (new_v_players.count(id) == 0) {
 				sendRemovePlayer(id);

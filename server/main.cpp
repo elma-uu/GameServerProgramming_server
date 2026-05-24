@@ -18,12 +18,14 @@ void worker_thread()
 		int client_id = static_cast<int>(completion_key);
 
 		if (exp_over->m_iotype == IO_ACCEPT) {
-			std::cout << "Client " << client_id << " connected" << std::endl;
-
+			SOCKET client_socket = exp_over->m_client_socket;
 			int my_id = player_index++;
-			std::shared_ptr<SESSION> new_client = std::make_shared<SESSION>(exp_over->m_client_socket, my_id);
+
+			std::cout << "Client " << my_id << " connected" << std::endl;
+
+			std::shared_ptr<SESSION> new_client = std::make_shared<SESSION>(client_socket, my_id);
 			clients[my_id] = new_client;
-			CreateIoCompletionPort((HANDLE)exp_over->m_client_socket, g_iocp, my_id, 0);
+			CreateIoCompletionPort((HANDLE)client_socket, g_iocp, (ULONG_PTR)my_id, 0);
 
 			new_client->sendLoginSuccess();
 			new_client->doRecv();
@@ -31,9 +33,20 @@ void worker_thread()
 			// Issue new AcceptEx for next connection
 			EXP_OVER* new_accept_over = new EXP_OVER(IO_ACCEPT);
 			new_accept_over->m_client_socket = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
-			AcceptEx(g_server, new_accept_over->m_client_socket, &new_accept_over->m_ring_buffer.buffer, 0,
-				sizeof(SOCKADDR_IN) + 16, sizeof(SOCKADDR_IN) + 16,
-				NULL, &new_accept_over->m_over);
+			if (new_accept_over->m_client_socket == INVALID_SOCKET) {
+				std::cout << "Failed to create socket for AcceptEx" << std::endl;
+				delete new_accept_over;
+			}
+			else {
+				BOOL accept_result = AcceptEx(g_server, new_accept_over->m_client_socket, &new_accept_over->m_ring_buffer.buffer, 0,
+					sizeof(SOCKADDR_IN) + 16, sizeof(SOCKADDR_IN) + 16,
+					NULL, &new_accept_over->m_over);
+				if (!accept_result && WSAGetLastError() != WSA_IO_PENDING) {
+					std::cout << "AcceptEx failed with error: " << WSAGetLastError() << std::endl;
+					closesocket(new_accept_over->m_client_socket);
+					delete new_accept_over;
+				}
+			}
 
 			delete exp_over;
 		}
@@ -51,7 +64,7 @@ void worker_thread()
 			}
 
 			// Push received data into SESSION's RingBuffer
-			if (!cla->mOver.m_ring_buffer.push(cla->mOver.m_ring_buffer.buffer, num_bytes)) {
+			if (!cla->mRecvBuffer.push(exp_over->m_ring_buffer.buffer, num_bytes)) {
 				std::cout << "RingBuffer overflow for client[" << client_id << "]" << std::endl;
 				disconnect(client_id);
 				delete exp_over;
@@ -59,14 +72,14 @@ void worker_thread()
 			}
 
 			// Process complete packets from ring buffer
-			while (cla->mOver.m_ring_buffer.get_size() > 0) {
+			while (cla->mRecvBuffer.get_size() > 0) {
 				// Need at least 1 byte for size field
-				if (cla->mOver.m_ring_buffer.get_size() < 1) {
+				if (cla->mRecvBuffer.get_size() < 1) {
 					break;
 				}
 
 				// Peek at the size field (first byte)
-				char size_byte = cla->mOver.m_ring_buffer.buffer[cla->mOver.m_ring_buffer.head];
+				char size_byte = cla->mRecvBuffer.buffer[cla->mRecvBuffer.head];
 				int packet_size = static_cast<unsigned char>(size_byte);
 
 				// Validate packet size
@@ -77,13 +90,13 @@ void worker_thread()
 				}
 
 				// Check if we have the complete packet
-				if (cla->mOver.m_ring_buffer.get_size() < packet_size) {
+				if (cla->mRecvBuffer.get_size() < packet_size) {
 					break;
 				}
 
 				// Extract complete packet from ring buffer
 				char packet_buffer[256];
-				int pop_result = cla->mOver.m_ring_buffer.pop(packet_buffer, packet_size);
+				int pop_result = cla->mRecvBuffer.pop(packet_buffer, packet_size);
 				if (pop_result == -1) {
 					std::cout << "Failed to pop packet from RingBuffer for client[" << client_id << "]" << std::endl;
 					disconnect(client_id);
@@ -127,9 +140,25 @@ int main()
 
 	EXP_OVER* accept_over = new EXP_OVER(IO_ACCEPT);
 	accept_over->m_client_socket = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
-	AcceptEx(g_server, accept_over->m_client_socket, &accept_over->m_ring_buffer.buffer, 0,
+	if (accept_over->m_client_socket == INVALID_SOCKET) {
+		std::cout << "Failed to create initial socket for AcceptEx" << std::endl;
+		delete accept_over;
+		closesocket(g_server);
+		WSACleanup();
+		return 1;
+	}
+
+	BOOL accept_result = AcceptEx(g_server, accept_over->m_client_socket, &accept_over->m_ring_buffer.buffer, 0,
 		sizeof(SOCKADDR_IN) + 16, sizeof(SOCKADDR_IN) + 16,
 		NULL, &accept_over->m_over);
+	if (!accept_result && WSAGetLastError() != WSA_IO_PENDING) {
+		std::cout << "Initial AcceptEx failed with error: " << WSAGetLastError() << std::endl;
+		closesocket(accept_over->m_client_socket);
+		delete accept_over;
+		closesocket(g_server);
+		WSACleanup();
+		return 1;
+	}
 
 	std::vector<std::thread> worker_threads;
 	int num_threads = std::thread::hardware_concurrency();

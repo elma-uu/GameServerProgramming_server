@@ -206,33 +206,9 @@ bool SESSION::processPacket(unsigned char* p)
 	case C2S_MOVE:
 	{
 		C2S_Move* packet = reinterpret_cast<C2S_Move*>(p);
-		DIRECTION dir = packet->dir;
-		short client_x = packet->x;
-		short client_y = packet->y;
+		mX = packet->x;
+		mY = packet->y;
 		mMove_time = packet->move_time;
-
-		// Calculate expected position based on direction
-		short expected_x = mX;
-		short expected_y = mY;
-
-		switch (dir) {
-		case UP: expected_y = max(0, mY - 1); break;
-		case DOWN: expected_y = min(WORLD_HEIGHT - 1, mY + 1); break;
-		case LEFT: expected_x = max(0, mX - 1); break;
-		case RIGHT: expected_x = min(WORLD_WIDTH - 1, mX + 1); break;
-		}
-
-		// Anti-cheat: Verify client position matches server calculation
-		if (client_x != expected_x || client_y != expected_y) {
-			std::cout << "Position mismatch for player[" << mId << "]: " 
-				<< "Client(" << client_x << "," << client_y << ") != "
-				<< "Server(" << expected_x << "," << expected_y << ")" << std::endl;
-			// Optionally disconnect the client for suspicious movement
-			// For now, we'll use server's calculation
-		}
-
-		mX = expected_x;
-		mY = expected_y;
 
 		auto old_v_players = m_visible_players;
 

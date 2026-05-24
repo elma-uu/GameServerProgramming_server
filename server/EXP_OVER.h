@@ -44,11 +44,13 @@ public:
 		ZeroMemory(&m_over, sizeof(m_over));
 		m_wsa.buf = m_ring_buffer.buffer;
 		m_wsa.len = MAX_BUF_SIZE;
+		m_client_socket = INVALID_SOCKET;
 	}
 	EXP_OVER(IOType iot) : m_iotype(iot)
 	{
 		ZeroMemory(&m_over, sizeof(m_over));
 		m_wsa.buf = m_ring_buffer.buffer;
 		m_wsa.len = MAX_BUF_SIZE;
+		m_client_socket = INVALID_SOCKET;
 	}
 };

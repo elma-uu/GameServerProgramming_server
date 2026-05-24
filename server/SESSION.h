@@ -10,7 +10,7 @@ public:
 	SOCKET mClient;
 	int mId;
 	CL_STATE mState;
-	EXP_OVER mOver;
+	RingBuffer mRecvBuffer;
 	char mUsername[MAX_NAME_LEN];
 	short mX, mY;
 	int mMove_time;

@@ -71,9 +71,14 @@ void SESSION::sendLoginSuccess()
 
 void SESSION::doRecv()
 {
+	EXP_OVER* o = new EXP_OVER(IO_RECV);
+	o->m_client_socket = mClient;
 	DWORD recv_flag = 0;
-	memset(&mOver.m_over, 0, sizeof(mOver.m_over));
-	WSARecv(mClient, &mOver.m_wsa, 1, 0, &recv_flag, &mOver.m_over, nullptr);
+	int recv_result = WSARecv(mClient, &o->m_wsa, 1, 0, &recv_flag, &o->m_over, nullptr);
+	if (recv_result == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING) {
+		std::cout << "WSARecv failed with error: " << WSAGetLastError() << std::endl;
+		delete o;
+	}
 }
 
 void SESSION::doSend(int numBytes, char* mess)
@@ -81,7 +86,11 @@ void SESSION::doSend(int numBytes, char* mess)
 	EXP_OVER* o = new EXP_OVER(IO_SEND);
 	o->m_wsa.len = numBytes;
 	memcpy(o->m_ring_buffer.buffer, mess, numBytes);
-	WSASend(mClient, &o->m_wsa, 1, 0, 0, &o->m_over, nullptr);
+	int send_result = WSASend(mClient, &o->m_wsa, 1, 0, 0, &o->m_over, nullptr);
+	if (send_result == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING) {
+		std::cout << "WSASend failed with error: " << WSAGetLastError() << std::endl;
+		delete o;
+	}
 }
 
 void SESSION::sendAvatarInfo()

@@ -4,9 +4,11 @@
 // Global variable definitions
 tbb::concurrent_unordered_map<int, std::shared_ptr<SESSION>> clients;
 tbb::concurrent_unordered_map<int, std::unordered_set<int>> sectors;
+
 SOCKET g_server;
 HANDLE g_iocp;
-std::atomic<int> player_index = 1;
+
+std::atomic<int> player_index = 0;
 
 void error_display(const wchar_t* msg, int err_no)
 {
@@ -33,8 +35,8 @@ SESSION::SESSION(SOCKET s, int id)
 	mClient = s;
 	mId = id;
 	mState = CS_CONNECT;
-	mX = 0;
-	mY = 0;
+	mX = 1000;
+	mY = 1000;
 	mMove_time = 0;
 	mSector_id = 0;
 	is_player = true;
@@ -44,8 +46,8 @@ SESSION::SESSION(int id, bool isPlayer)
 {
 	mId = id;
 	mState = CS_CONNECT;
-	mX = 0;
-	mY = 0;
+	mX = 1000;
+	mY = 1000;
 	mMove_time = 0;
 	mSector_id = 0;
 	is_player = isPlayer;

@@ -32,6 +32,7 @@ public:
 	~SESSION();
 
 
+	// packet
 	void sendLoginSuccess();
 	void doRecv();
 	void doSend(int numBytes, char* mess);
@@ -41,6 +42,8 @@ public:
 	void sendMovePacket(int mover);
 	bool processPacket(unsigned char* p);
 
+
+	// sector
 	bool is_visible(short x, short y);
 	void get_visible_players_from_sectors(std::unordered_set<int>& visible_set);
 };

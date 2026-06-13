@@ -19,6 +19,11 @@ public:
 	int mMaxHp;
 	unsigned long long mExp;
 	unsigned char mLevel;
+	unsigned char mStr;
+	unsigned char mIntl;
+	unsigned char mDex;
+	unsigned char mLuk;
+	unsigned char mStatPoints;
 	std::unordered_set<int> m_visible_players;
 	std::unordered_set<int> m_visible_npcs;
 	std::mutex m_visible_mutex;
@@ -40,7 +45,11 @@ public:
 	void sendAddPlayer(int player_id);
 	void sendRemovePlayer(int player_id);
 	void sendMovePacket(int mover);
+	void sendStatInfo();
 	bool processPacket(unsigned char* p);
+
+	// call this whenever the player levels up to grant stat points
+	void onLevelUp() { mStatPoints += 5; sendStatInfo(); }
 
 
 	// sector

@@ -40,6 +40,8 @@ SESSION::SESSION(SOCKET s, int id)
 	mMove_time = 0;
 	mSector_id = 0;
 	is_player = true;
+	mHp = 100; mMaxHp = 100; mExp = 0; mLevel = 1;
+	mStr = 5; mIntl = 5; mDex = 5; mLuk = 5; mStatPoints = 0;
 }
 
 SESSION::SESSION(int id, bool isPlayer)
@@ -51,6 +53,8 @@ SESSION::SESSION(int id, bool isPlayer)
 	mMove_time = 0;
 	mSector_id = 0;
 	is_player = isPlayer;
+	mHp = 100; mMaxHp = 100; mExp = 0; mLevel = 1;
+	mStr = 5; mIntl = 5; mDex = 5; mLuk = 5; mStatPoints = 0;
 }
 
 SESSION::~SESSION()
@@ -102,10 +106,25 @@ void SESSION::sendAvatarInfo()
 	packet.visualId = 0;
 	packet.x = mX;
 	packet.y = mY;
-	packet.exp = 0;
-	packet.level = 1;
-	packet.hp = 100;
-	packet.max_hp = 100;
+	packet.exp = mExp;
+	packet.level = mLevel;
+	packet.hp = mHp;
+	packet.max_hp = mMaxHp;
+	doSend(packet.size, reinterpret_cast<char*>(&packet));
+	sendStatInfo();
+}
+
+void SESSION::sendStatInfo()
+{
+	S2C_StatInfo packet;
+	packet.size = sizeof(S2C_StatInfo);
+	packet.type = S2C_STAT_INFO;
+	packet.object_id = mId;
+	packet.str = mStr;
+	packet.intl = mIntl;
+	packet.dex = mDex;
+	packet.luk = mLuk;
+	packet.stat_points = mStatPoints;
 	doSend(packet.size, reinterpret_cast<char*>(&packet));
 }
 
@@ -248,6 +267,24 @@ bool SESSION::processPacket(unsigned char* p)
 				pl->sendRemovePlayer(mId);
 			}
 		}
+	}
+	break;
+	case C2S_STAT_INVEST:
+	{
+		if (mStatPoints == 0) break;
+		C2S_StatInvest* packet = reinterpret_cast<C2S_StatInvest*>(p);
+		switch (packet->stat_type)
+		{
+		case STAT_STR: mStr++;  break;
+		case STAT_INT: mIntl++; break;
+		case STAT_DEX: mDex++;  break;
+		case STAT_LUK: mLuk++;  break;
+		default: break;
+		}
+		mStatPoints--;
+		sendStatInfo();
+		std::cout << "Player[" << mId << "] invested in stat " << (int)packet->stat_type
+			<< " (points left: " << (int)mStatPoints << ")\n";
 	}
 	break;
 	case C2S_CHAT:

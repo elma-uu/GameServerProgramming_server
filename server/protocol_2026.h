@@ -15,26 +15,35 @@ enum DIRECTION { UP, DOWN, LEFT, RIGHT };
 
 enum PACKET_TYPE { 
 	C2S_LOGIN,			// Client to Server: Login request
-						// »ç¿ëÀÚ ÀÌ¸§À» Æ÷ÇÔÇÑ ·Î±×ÀÎ ¿äÃ» ÆÐÅ¶	
+						// ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ì¸ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Î±ï¿½ï¿½ï¿½ ï¿½ï¿½Ã» ï¿½ï¿½Å¶	
 	C2S_MOVE,			// Client to Server: Move request
-						// ÀÌµ¿ ¹æÇâ°ú ÀÌµ¿ ½Ã°£À» Æ÷ÇÔÇÑ ÀÌµ¿ ¿äÃ» ÆÐÅ¶
+						// ï¿½Ìµï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ìµï¿½ ï¿½Ã°ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ìµï¿½ ï¿½ï¿½Ã» ï¿½ï¿½Å¶
 	C2S_CHAT,			// Client to Server: Chat message
-						// Ã¤ÆÃ ¸Þ½ÃÁö¸¦ Æ÷ÇÔÇÑ Ã¤ÆÃ ¿äÃ» ÆÐÅ¶
+						// Ã¤ï¿½ï¿½ ï¿½Þ½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Ã¤ï¿½ï¿½ ï¿½ï¿½Ã» ï¿½ï¿½Å¶
 	C2S_ATTACK,			// Client to Server: Attack request
-						// °ø°Ý ¿äÃ» ÆÐÅ¶ (4 ¹æÇâ µ¿½Ã °ø°Ý)
+						// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ã» ï¿½ï¿½Å¶ (4 ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)
 	C2S_TELEPORT,		// Client to Server: Teleport request
-						// ÅÚ·¹Æ÷Æ® ¿äÃ» ÆÐÅ¶ (¸ñÀûÁö ÁÂÇ¥ Æ÷ÇÔ)
-						// STRESS TEST¿ëÀ¸·Î Ãß°¡ÇÑ ÆÐÅ¶ÀÔ´Ï´Ù. ½ÃÀÛ ¸¶À»¿¡ ¸ô¸®´Â °ÍÀ» ¹æÁö.
+						// ï¿½Ú·ï¿½ï¿½ï¿½Æ® ï¿½ï¿½Ã» ï¿½ï¿½Å¶ (ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ç¥ ï¿½ï¿½ï¿½ï¿½)
+						// STRESS TESTï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ß°ï¿½ï¿½ï¿½ ï¿½ï¿½Å¶ï¿½Ô´Ï´ï¿½. ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½.
 	C2S_LOGOUT,			// Client to Server: Logout request
 
 	S2C_LOGIN_RESULT,	//	Server to Client: Login result
-						// ·Î±×ÀÎ °á°ú ÆÐÅ¶ (¼º°ø ¿©ºÎ¿Í ¸Þ½ÃÁö Æ÷ÇÔ)
+						// ï¿½Î±ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½Å¶ (ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Î¿ï¿½ ï¿½Þ½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)
 	S2C_AVATAR_INFO,	//	Server to Client: Avatar information
 	S2C_ADD_OBJECT,		//	Server to Client: Add player or NPC		
 	S2C_REMOVE_OBJECT,	//	Server to Client: Remove player or NPC
 	S2C_MOVE_OBJECT,	//	Server to Client: Move player or NPC
 	S2C_CHAT_MESSAGE,	//	Server to Client: Chat message
-	S2C_STATUS_CHANGE,	//	Server to Client: Update player or NPC status (e.g., health, buffs)	
+	S2C_STATUS_CHANGE,	//	Server to Client: Update player or NPC status (e.g., health, buffs)
+	C2S_STAT_INVEST,	//	Client to Server: invest one stat point
+	S2C_STAT_INFO,		//	Server to Client: current stat values and available points
+};
+
+enum STAT_TYPE : unsigned char {
+	STAT_STR = 0,
+	STAT_INT = 1,
+	STAT_DEX = 2,
+	STAT_LUK = 3,
 };
 
 #pragma pack(push, 1) // Ensure no padding between struct members
@@ -140,6 +149,23 @@ struct S2C_StatusChange {
 	int max_hp;
 	unsigned long long exp;
 	unsigned char level;
+};
+
+struct C2S_StatInvest {
+	unsigned char size;
+	PACKET_TYPE   type;
+	STAT_TYPE     stat_type;
+};
+
+struct S2C_StatInfo {
+	unsigned char size;
+	PACKET_TYPE   type;
+	int           object_id;
+	unsigned char str;
+	unsigned char intl;  // INT (int is a reserved keyword)
+	unsigned char dex;
+	unsigned char luk;
+	unsigned char stat_points;
 };
 
 #pragma pack(pop) // Restore default packing

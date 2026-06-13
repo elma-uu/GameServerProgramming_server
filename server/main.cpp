@@ -27,7 +27,25 @@ void initNpcs()
 		}
 		npc->mHp = 50;
 		npc->mMaxHp = 50;
-		sprintf_s(npc->mUsername, MAX_NAME_LEN, "NPC_%d", i);
+
+		// Assign monster name by level tier
+		// lv 1-30: W.Goblin  / lv 31-60: Goblin
+		// lv 61-80: Gob.Paladin / lv 81-100: Gob.Paladin(4) or Gob.Shaman(1)
+		{
+			int lv = npc->mLevel;
+			const char* npcName;
+			if (lv <= 30) {
+				npcName = "¶°µ¹ÀÌ °íºí¸°";
+			} else if (lv <= 60) {
+				npcName = "°íºí¸°";
+			} else if (lv <= 80) {
+				npcName = "°íºí¸° ÆÈ¶óµò";
+			} else {
+				npcName = (rng() % 5 == 0) ? "°íºí¸° »þ¸Õ" : "°íºí¸° ÆÈ¶óµò";
+			}
+			sprintf_s(npc->mUsername, MAX_NAME_LEN, "%s", npcName);
+		}
+
 		npc->mState = CS_PLAYING;
 
 		int sector_id = get_sector_id(npc->mX, npc->mY);

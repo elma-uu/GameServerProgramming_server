@@ -39,6 +39,7 @@ SESSION::SESSION(SOCKET s, int id)
 	mY = 1000;
 	mMove_time = 0;
 	mSector_id = 0;
+	mDirection = DOWN;
 	is_player = true;
 	mHp = 100; mMaxHp = 100; mExp = 0; mLevel = 1;
 	mStr = 5; mIntl = 5; mDex = 5; mLuk = 5; mStatPoints = 0;
@@ -53,6 +54,7 @@ SESSION::SESSION(int id, bool isPlayer)
 	mY = 1000;
 	mMove_time = 0;
 	mSector_id = 0;
+	mDirection = DOWN;
 	is_player = isPlayer;
 	mHp = 100; mMaxHp = 100; mExp = 0; mLevel = 1;
 	mStr = 5; mIntl = 5; mDex = 5; mLuk = 5; mStatPoints = 0;
@@ -236,6 +238,7 @@ bool SESSION::processPacket(unsigned char* p)
 		mX = packet->x;
 		mY = packet->y;
 		mMove_time = packet->move_time;
+		mDirection = packet->dir;
 
 		auto old_v_players = m_visible_players;
 
@@ -310,6 +313,120 @@ bool SESSION::processPacket(unsigned char* p)
 		sendStatInfo();
 		std::cout << "Player[" << mId << "] invested in stat " << (int)packet->stat_type
 			<< " (points left: " << (int)mStatPoints << ")\n";
+	}
+	break;
+	case C2S_ATTACK:
+	{
+		// Compute direction delta
+		short dx = 0, dy = 0;
+		switch (mDirection) {
+		case UP:    dy = -1; break;
+		case DOWN:  dy =  1; break;
+		case LEFT:  dx = -1; break;
+		case RIGHT: dx =  1; break;
+		}
+
+		// Find closest target in front (up to 2 tiles)
+		int target_id = -1;
+		int sectors_x = (WORLD_WIDTH / SECTOR_SIZE) + 1;
+		for (int r = 1; r <= 2 && target_id == -1; ++r) {
+			short tx = mX + static_cast<short>(dx * r);
+			short ty = mY + static_cast<short>(dy * r);
+			if (tx < 0 || tx >= WORLD_WIDTH || ty < 0 || ty >= WORLD_HEIGHT) break;
+			int sid = get_sector_id(tx, ty);
+			auto sit = sectors.find(sid);
+			if (sit == sectors.end()) continue;
+			for (int id : sit->second) {
+				if (id == mId) continue;
+				auto cit = clients.find(id);
+				if (cit == clients.end()) continue;
+				std::shared_ptr<SESSION> tgt = cit->second;
+				if (!tgt || tgt->mState != CS_PLAYING) continue;
+				if (tgt->mX == tx && tgt->mY == ty) { target_id = id; break; }
+			}
+		}
+
+		if (target_id == -1) break;
+
+		std::shared_ptr<SESSION> target = clients[target_id];
+		if (!target) break;
+
+		// Damage: STR * 100, crit = LUK% chance -> x2
+		int damage = static_cast<int>(mStr) * 100;
+		bool is_crit = (rand() % 100) < static_cast<int>(mLuk);
+		if (is_crit) damage *= 2;
+
+		target->mHp -= damage;
+
+		// Players cannot die: floor at 1
+		if (target->mHp <= 0 && target->is_player) target->mHp = 1;
+
+		bool killed = (target->mHp <= 0 && !target->is_player);
+		if (killed) target->mHp = 0;
+
+		std::cout << "[Attack] Player[" << mId << "] -> [" << target_id << "]: "
+			<< damage << (is_crit ? " CRIT" : "") << (killed ? " (killed)" : "") << "\n";
+
+		if (killed) {
+			// Notify everyone who could see this NPC
+			target->m_visible_mutex.lock();
+			auto watchers = target->m_visible_players;
+			target->m_visible_players.clear();
+			target->m_visible_mutex.unlock();
+
+			S2C_RemoveObject rp;
+			rp.size = sizeof(S2C_RemoveObject);
+			rp.type = S2C_REMOVE_OBJECT;
+			rp.object_id = target_id;
+			for (int pid : watchers) {
+				auto pit = clients.find(pid);
+				if (pit == clients.end()) continue;
+				std::shared_ptr<SESSION> pl = pit->second;
+				if (!pl || pl->mState != CS_PLAYING) continue;
+				pl->m_visible_mutex.lock();
+				pl->m_visible_npcs.erase(target_id);
+				pl->m_visible_mutex.unlock();
+				pl->doSend(rp.size, reinterpret_cast<char*>(&rp));
+			}
+
+			// Respawn NPC with full HP (stays in place, reappears on next player move)
+			target->mHp = target->mMaxHp;
+
+			// Give EXP to attacker
+			mExp += static_cast<unsigned long long>(target->mLevel) * 100ULL;
+			while (mExp >= static_cast<unsigned long long>(mLevel) * 1000ULL && mLevel < 100) {
+				mExp -= static_cast<unsigned long long>(mLevel) * 1000ULL;
+				mLevel++;
+				mStatPoints += 5;
+			}
+			sendAvatarInfo();
+		} else {
+			// Broadcast HP change to everyone watching the target
+			S2C_StatusChange sc;
+			sc.size = sizeof(S2C_StatusChange);
+			sc.type = S2C_STATUS_CHANGE;
+			sc.object_id = target_id;
+			sc.hp = target->mHp;
+			sc.max_hp = target->mMaxHp;
+			sc.exp = target->mExp;
+			sc.level = target->mLevel;
+
+			target->m_visible_mutex.lock();
+			auto watchers = target->m_visible_players;
+			target->m_visible_mutex.unlock();
+
+			for (int pid : watchers) {
+				auto pit = clients.find(pid);
+				if (pit == clients.end()) continue;
+				std::shared_ptr<SESSION> pl = pit->second;
+				if (!pl || pl->mState != CS_PLAYING) continue;
+				pl->doSend(sc.size, reinterpret_cast<char*>(&sc));
+			}
+
+			// If target is a player, send to target itself too
+			if (target->is_player)
+				target->doSend(sc.size, reinterpret_cast<char*>(&sc));
+		}
 	}
 	break;
 	case C2S_CHAT:

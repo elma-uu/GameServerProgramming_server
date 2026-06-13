@@ -15,6 +15,7 @@ public:
 	short mX, mY;
 	int mMove_time;
 	int mSector_id;
+	DIRECTION mDirection;
 	int mHp;
 	int mMaxHp;
 	unsigned long long mExp;

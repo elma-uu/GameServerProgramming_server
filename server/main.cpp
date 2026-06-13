@@ -2,6 +2,62 @@
 #include "SESSION.h"
 #include "EXP_OVER.h"
 
+void initNpcs()
+{
+	std::mt19937 rng(42);
+	std::uniform_int_distribution<int> distX(0, WORLD_WIDTH - 1);
+	std::uniform_int_distribution<int> distY(0, WORLD_HEIGHT - 1);
+
+	for (int i = 0; i < NUM_NPCS; ++i) {
+		int npc_id = NPC_ID_START + i;
+		auto npc = std::make_shared<SESSION>(npc_id, false);
+		npc->mX = static_cast<short>(distX(rng));
+		npc->mY = static_cast<short>(distY(rng));
+		// Level scales with distance from center (1000, 1000): min 1, max 100
+		// Max possible distance: corner (0,0) or (2000,2000) -> sqrt(1000^2 + 1000^2) ~ 1414
+		{
+			const float MAX_DIST = sqrtf(1000.0f * 1000.0f + 1000.0f * 1000.0f);
+			float dx = static_cast<float>(npc->mX - 1000);
+			float dy = static_cast<float>(npc->mY - 1000);
+			float dist = sqrtf(dx * dx + dy * dy);
+			int level = 1 + static_cast<int>(dist / MAX_DIST * 99.0f);
+			if (level > 100) level = 100;
+			npc->mLevel = static_cast<unsigned char>(level);
+		}
+		npc->mHp = 50;
+		npc->mMaxHp = 50;
+		sprintf_s(npc->mUsername, MAX_NAME_LEN, "NPC_%d", i);
+		npc->mState = CS_PLAYING;
+
+		int sector_id = get_sector_id(npc->mX, npc->mY);
+		sectors[sector_id].insert(npc_id);
+		npc->mSector_id = sector_id;
+
+		clients[npc_id] = npc;
+
+		if (i % 10000 == 0)
+			std::cout << "NPC init: " << i << "/" << NUM_NPCS << "\n";
+	}
+	std::cout << "Initialized " << NUM_NPCS << " NPCs.\n";
+}
+
+void npc_timer_thread()
+{
+	while (true) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(NPC_MOVE_INTERVAL));
+		for (int i = 0; i < NUM_NPCS; ++i) {
+			int npc_id = NPC_ID_START + i;
+			auto it = clients.find(npc_id);
+			if (it == clients.end()) continue;
+			std::shared_ptr<SESSION> npc = it->second;
+			if (!npc || npc->m_visible_players.empty()) continue;
+			EXP_OVER* over = new EXP_OVER(IO_NPC_MOVE);
+			PostQueuedCompletionStatus(g_iocp, 1,
+				static_cast<ULONG_PTR>(npc_id), &over->m_over);
+		}
+	}
+}
+
 void worker_thread()
 {
 	while (true) {
@@ -119,6 +175,12 @@ void worker_thread()
 			// Send completed
 			delete exp_over;
 		}
+		else if (exp_over->m_iotype == IO_NPC_MOVE) {
+			std::shared_ptr<SESSION> npc = clients[client_id];
+			if (npc && !npc->is_player && npc->mState == CS_PLAYING)
+				npc->doNpcMove();
+			delete exp_over;
+		}
 	}
 }
 
@@ -159,6 +221,12 @@ int main()
 		WSACleanup();
 		return 1;
 	}
+
+	// Initialize NPCs before accepting players
+	initNpcs();
+
+	// Start NPC timer thread (detached — runs for the lifetime of the server)
+	std::thread(npc_timer_thread).detach();
 
 	std::vector<std::thread> worker_threads;
 	int num_threads = std::thread::hardware_concurrency();

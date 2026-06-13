@@ -55,6 +55,12 @@ public:
 	// sector
 	bool is_visible(short x, short y);
 	void get_visible_players_from_sectors(std::unordered_set<int>& visible_set);
+	void get_visible_npcs_from_sectors(std::unordered_set<int>& visible_set);
+
+	// NPC
+	void sendAddNpc(int npc_id);
+	void sendRemoveNpc(int npc_id);
+	void doNpcMove();
 };
 
 inline void disconnect(int key)

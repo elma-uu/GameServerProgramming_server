@@ -46,6 +46,7 @@ SESSION::SESSION(SOCKET s, int id)
 
 SESSION::SESSION(int id, bool isPlayer)
 {
+	mClient = INVALID_SOCKET;
 	mId = id;
 	mState = CS_CONNECT;
 	mX = 1000;
@@ -220,6 +221,13 @@ bool SESSION::processPacket(unsigned char* p)
 			pl->sendAddPlayer(mId);
 		}
 
+		// Send add NPC packets for nearby NPCs
+		{
+			std::unordered_set<int> visible_npcs;
+			get_visible_npcs_from_sectors(visible_npcs);
+			for (int npc_id : visible_npcs)
+				sendAddNpc(npc_id);
+		}
 	}
 	break;
 	case C2S_MOVE:
@@ -265,6 +273,23 @@ bool SESSION::processPacket(unsigned char* p)
 				std::shared_ptr<SESSION> pl = clients[id];
 				if (nullptr == pl) continue;
 				pl->sendRemovePlayer(mId);
+			}
+		}
+
+		// Handle NPC visibility changes
+		{
+			m_visible_mutex.lock();
+			auto old_v_npcs = m_visible_npcs;
+			m_visible_mutex.unlock();
+
+			std::unordered_set<int> new_v_npcs;
+			get_visible_npcs_from_sectors(new_v_npcs);
+
+			for (int npc_id : new_v_npcs) {
+				if (old_v_npcs.count(npc_id) == 0) sendAddNpc(npc_id);
+			}
+			for (int npc_id : old_v_npcs) {
+				if (new_v_npcs.count(npc_id) == 0) sendRemoveNpc(npc_id);
 			}
 		}
 	}
@@ -360,6 +385,155 @@ void SESSION::get_visible_players_from_sectors(std::unordered_set<int>& visible_
 				if (is_visible(pl->mX, pl->mY))
 					visible_set.insert(player_id);
 			}
+		}
+	}
+}
+
+void SESSION::get_visible_npcs_from_sectors(std::unordered_set<int>& visible_set)
+{
+	int sectors_x = (WORLD_WIDTH / SECTOR_SIZE) + 1;
+	int my_sector_x = mSector_id % sectors_x;
+	int my_sector_y = mSector_id / sectors_x;
+
+	for (int dy = -1; dy <= 1; ++dy) {
+		for (int dx = -1; dx <= 1; ++dx) {
+			int sx = my_sector_x + dx;
+			int sy = my_sector_y + dy;
+			if (sx < 0 || sx >= sectors_x || sy < 0 || sy >= sectors_x) continue;
+			int sector_id = sy * sectors_x + sx;
+			auto it = sectors.find(sector_id);
+			if (it == sectors.end()) continue;
+			for (int id : it->second) {
+				if (id < NPC_ID_START) continue;
+				auto cit = clients.find(id);
+				if (cit == clients.end()) continue;
+				std::shared_ptr<SESSION> npc = cit->second;
+				if (!npc || npc->mState != CS_PLAYING) continue;
+				if (is_visible(npc->mX, npc->mY)) visible_set.insert(id);
+			}
+		}
+	}
+}
+
+void SESSION::sendAddNpc(int npc_id)
+{
+	auto it = clients.find(npc_id);
+	if (it == clients.end()) return;
+	std::shared_ptr<SESSION> npc = it->second;
+	if (!npc || npc->mState != CS_PLAYING) return;
+
+	m_visible_mutex.lock();
+	if (m_visible_npcs.count(npc_id) > 0) {
+		m_visible_mutex.unlock();
+		return;
+	}
+	m_visible_npcs.insert(npc_id);
+	m_visible_mutex.unlock();
+
+	npc->m_visible_mutex.lock();
+	npc->m_visible_players.insert(mId);
+	npc->m_visible_mutex.unlock();
+
+	S2C_AddObject packet;
+	packet.size = sizeof(S2C_AddObject);
+	packet.type = S2C_ADD_OBJECT;
+	packet.object_id = npc_id;
+	packet.visual_id = 1;
+	memcpy(packet.obj_name, npc->mUsername, MAX_NAME_LEN);
+	packet.x = npc->mX;
+	packet.y = npc->mY;
+	packet.hp = npc->mHp;
+	packet.max_hp = npc->mMaxHp;
+	packet.exp = npc->mExp;
+	packet.level = npc->mLevel;
+	doSend(packet.size, reinterpret_cast<char*>(&packet));
+}
+
+void SESSION::sendRemoveNpc(int npc_id)
+{
+	m_visible_mutex.lock();
+	if (m_visible_npcs.count(npc_id) == 0) {
+		m_visible_mutex.unlock();
+		return;
+	}
+	m_visible_npcs.erase(npc_id);
+	m_visible_mutex.unlock();
+
+	auto it = clients.find(npc_id);
+	if (it != clients.end() && it->second) {
+		it->second->m_visible_mutex.lock();
+		it->second->m_visible_players.erase(mId);
+		it->second->m_visible_mutex.unlock();
+	}
+
+	S2C_RemoveObject packet;
+	packet.size = sizeof(S2C_RemoveObject);
+	packet.type = S2C_REMOVE_OBJECT;
+	packet.object_id = npc_id;
+	doSend(packet.size, reinterpret_cast<char*>(&packet));
+}
+
+void SESSION::doNpcMove()
+{
+	thread_local std::mt19937 rng(std::random_device{}());
+	thread_local std::uniform_int_distribution<int> dir_dist(0, 3);
+
+	int dir = dir_dist(rng);
+	short newX = mX, newY = mY;
+	switch (dir) {
+	case 0: if (newY > 0)              newY--; break;
+	case 1: if (newY < WORLD_HEIGHT-1) newY++; break;
+	case 2: if (newX > 0)              newX--; break;
+	case 3: if (newX < WORLD_WIDTH-1)  newX++; break;
+	}
+
+	if (newX == mX && newY == mY) return;
+	mX = newX;
+	mY = newY;
+
+	int new_sector_id = get_sector_id(mX, mY);
+	if (new_sector_id != mSector_id) {
+		sectors[mSector_id].erase(mId);
+		sectors[new_sector_id].insert(mId);
+		mSector_id = new_sector_id;
+	}
+
+	S2C_MoveObject mp;
+	mp.size = sizeof(S2C_MoveObject);
+	mp.type = S2C_MOVE_OBJECT;
+	mp.object_id = mId;
+	mp.x = mX;
+	mp.y = mY;
+	mp.move_time = NPC_MOVE_INTERVAL;
+
+	m_visible_mutex.lock();
+	auto visible_copy = m_visible_players;
+	m_visible_mutex.unlock();
+
+	for (int pid : visible_copy) {
+		auto it = clients.find(pid);
+		if (it == clients.end()) continue;
+		std::shared_ptr<SESSION> pl = it->second;
+		if (!pl || pl->mState != CS_PLAYING) continue;
+
+		if (!is_visible(pl->mX, pl->mY)) {
+			// Player moved out of NPC's range
+			m_visible_mutex.lock();
+			m_visible_players.erase(pid);
+			m_visible_mutex.unlock();
+
+			pl->m_visible_mutex.lock();
+			pl->m_visible_npcs.erase(mId);
+			pl->m_visible_mutex.unlock();
+
+			S2C_RemoveObject rp;
+			rp.size = sizeof(S2C_RemoveObject);
+			rp.type = S2C_REMOVE_OBJECT;
+			rp.object_id = mId;
+			pl->doSend(rp.size, reinterpret_cast<char*>(&rp));
+		}
+		else {
+			pl->doSend(mp.size, reinterpret_cast<char*>(&mp));
 		}
 	}
 }

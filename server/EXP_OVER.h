@@ -1,7 +1,7 @@
 #pragma once
 #include "common.h"
 
-enum IOType { IO_SEND, IO_RECV, IO_ACCEPT };
+enum IOType { IO_SEND, IO_RECV, IO_ACCEPT, IO_NPC_MOVE };
 
 class RingBuffer {
 	public:

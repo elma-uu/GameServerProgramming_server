@@ -1,5 +1,6 @@
 #include "common.h"
 #include "SESSION.h"
+#include "Database.h"
 
 // Global variable definitions
 tbb::concurrent_unordered_map<int, std::shared_ptr<SESSION>> clients;
@@ -64,16 +65,6 @@ SESSION::~SESSION()
 {
 	if(mClient != INVALID_SOCKET)
 		closesocket(mClient);
-}
-
-void SESSION::sendLoginSuccess()
-{
-	S2C_LoginResult packet;
-	packet.size = sizeof(S2C_LoginResult);
-	packet.type = S2C_LOGIN_RESULT;
-	packet.success = true;
-	strncpy_s(packet.message, "Login successful.", sizeof(packet.message));
-	doSend(packet.size, reinterpret_cast<char*>(&packet));
 }
 
 void SESSION::doRecv()
@@ -199,7 +190,49 @@ bool SESSION::processPacket(unsigned char* p)
 	case C2S_LOGIN:
 	{
 		C2S_Login* packet = reinterpret_cast<C2S_Login*>(p);
-		strncpy_s(mUsername, packet->username, MAX_NAME_LEN);
+
+		// Null-terminate for safety
+		packet->username[MAX_NAME_LEN - 1] = '\0';
+		packet->password[MAX_NAME_LEN - 1] = '\0';
+
+		PlayerSaveData saveData;
+		int dbRes = Database::Login(packet->username, packet->password, saveData);
+
+		S2C_LoginResult result;
+		result.size = sizeof(S2C_LoginResult);
+		result.type = S2C_LOGIN_RESULT;
+
+		if (dbRes == DBR_WRONG_PW) {
+			result.result = LOGIN_WRONG_PW;
+			strncpy_s(result.message, "Wrong password.", sizeof(result.message));
+			doSend(result.size, reinterpret_cast<char*>(&result));
+			return true;
+		}
+		if (dbRes == DBR_FAIL) {
+			result.result = LOGIN_DB_ERROR;
+			strncpy_s(result.message, "Server DB error.", sizeof(result.message));
+			doSend(result.size, reinterpret_cast<char*>(&result));
+			return true;
+		}
+
+		// Load data from DB into session
+		strncpy_s(mUsername, saveData.username, MAX_NAME_LEN);
+		mX = saveData.x; mY = saveData.y;
+		mHp = saveData.hp; mMaxHp = saveData.max_hp;
+		mExp = saveData.exp; mLevel = saveData.level;
+		mStr = saveData.str; mIntl = saveData.intl;
+		mDex = saveData.dex; mLuk = saveData.luk;
+		mStatPoints = saveData.stat_points;
+
+		if (dbRes == DBR_NEW_USER) {
+			result.result = LOGIN_NEW_USER;
+			strncpy_s(result.message, "Welcome! New account created.", sizeof(result.message));
+		} else {
+			result.result = LOGIN_SUCCESS;
+			strncpy_s(result.message, "Welcome back!", sizeof(result.message));
+		}
+		doSend(result.size, reinterpret_cast<char*>(&result));
+
 		std::cout << "Player[" << mId << "] logged in as " << mUsername << std::endl;
 
 		// Initialize sector
@@ -210,11 +243,9 @@ bool SESSION::processPacket(unsigned char* p)
 		sendAvatarInfo();
 		mState = CS_PLAYING;
 
-		// Get visible players from sectors
+		// Notify visible players
 		std::unordered_set<int> new_v_players;
 		get_visible_players_from_sectors(new_v_players);
-
-		// Send add player packets for visible players
 		for (int id : new_v_players)
 		{
 			sendAddPlayer(id);
@@ -223,7 +254,7 @@ bool SESSION::processPacket(unsigned char* p)
 			pl->sendAddPlayer(mId);
 		}
 
-		// Send add NPC packets for nearby NPCs
+		// Send nearby NPCs
 		{
 			std::unordered_set<int> visible_npcs;
 			get_visible_npcs_from_sectors(visible_npcs);

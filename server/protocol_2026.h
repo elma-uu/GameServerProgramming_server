@@ -46,11 +46,20 @@ enum STAT_TYPE : unsigned char {
 	STAT_LUK = 3,
 };
 
+// Login result codes
+enum LOGIN_RESULT : unsigned char {
+	LOGIN_SUCCESS  = 0,   // existing user, password correct
+	LOGIN_NEW_USER = 1,   // new account auto-registered
+	LOGIN_WRONG_PW = 2,   // wrong password
+	LOGIN_DB_ERROR = 3,   // server DB failure
+};
+
 #pragma pack(push, 1) // Ensure no padding between struct members
 struct C2S_Login {
 	unsigned char size;
 	PACKET_TYPE   type;
 	char username[MAX_NAME_LEN];
+	char password[MAX_NAME_LEN];
 };
 
 struct C2S_Move {
@@ -88,7 +97,7 @@ struct C2S_Logout {
 struct S2C_LoginResult {
 	unsigned char size;
 	PACKET_TYPE   type;
-	bool success;
+	LOGIN_RESULT  result;
 	char message[50];
 };
 

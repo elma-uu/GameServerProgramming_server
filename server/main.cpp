@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "SESSION.h"
 #include "EXP_OVER.h"
+#include "Database.h"
 
 void initNpcs()
 {
@@ -58,6 +59,32 @@ void npc_timer_thread()
 	}
 }
 
+void db_save_thread()
+{
+	while (true) {
+		std::this_thread::sleep_for(std::chrono::seconds(10));
+
+		int saved = 0;
+		for (auto& [id, session] : clients) {
+			if (!session || !session->is_player) continue;
+			if (session->mState != CS_PLAYING) continue;
+
+			PlayerSaveData data;
+			strncpy_s(data.username, session->mUsername, 20);
+			data.x  = session->mX;   data.y       = session->mY;
+			data.hp = session->mHp;  data.max_hp  = session->mMaxHp;
+			data.exp = session->mExp; data.level   = session->mLevel;
+			data.str = session->mStr; data.intl    = session->mIntl;
+			data.dex = session->mDex; data.luk     = session->mLuk;
+			data.stat_points = session->mStatPoints;
+
+			if (Database::SavePlayer(data)) ++saved;
+		}
+		if (saved > 0)
+			std::cout << "[AutoSave] Saved " << saved << " player(s).\n";
+	}
+}
+
 void worker_thread()
 {
 	while (true) {
@@ -83,7 +110,6 @@ void worker_thread()
 			clients[my_id] = new_client;
 			CreateIoCompletionPort((HANDLE)client_socket, g_iocp, (ULONG_PTR)my_id, 0);
 
-			new_client->sendLoginSuccess();
 			new_client->doRecv();
 
 			// Issue new AcceptEx for next connection
@@ -222,11 +248,20 @@ int main()
 		return 1;
 	}
 
+	// Connect to database (must succeed before accepting players)
+	if (!Database::Connect()) {
+		std::cout << "Failed to connect to DB. Exiting.\n";
+		closesocket(g_server);
+		WSACleanup();
+		return 1;
+	}
+
 	// Initialize NPCs before accepting players
 	initNpcs();
 
-	// Start NPC timer thread (detached — runs for the lifetime of the server)
+	// Start background threads
 	std::thread(npc_timer_thread).detach();
+	std::thread(db_save_thread).detach();
 
 	std::vector<std::thread> worker_threads;
 	int num_threads = std::thread::hardware_concurrency();

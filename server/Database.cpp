@@ -1,0 +1,192 @@
+#include "pch.h"
+#include "Database.h"
+#include <cstring>
+#include <cstdio>
+
+SQLHENV    Database::hEnv       = SQL_NULL_HENV;
+SQLHDBC    Database::hDbc       = SQL_NULL_HDBC;
+std::mutex Database::g_dbMutex;
+bool       Database::g_connected = false;
+
+void Database::LogError(SQLSMALLINT type, SQLHANDLE handle)
+{
+    SQLCHAR state[6], msg[256];
+    SQLSMALLINT msgLen;
+    SQLINTEGER nativeErr;
+    SQLGetDiagRecA(type, handle, 1, state, &nativeErr, msg, sizeof(msg), &msgLen);
+    printf("[DB Error] %s: %s\n", state, msg);
+}
+
+bool Database::Connect()
+{
+    SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &hEnv);
+    SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (SQLPOINTER)SQL_OV_ODBC3, 0);
+    SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
+
+    SQLRETURN ret = SQLConnectA(hDbc,
+        (SQLCHAR*)"2026_GS_PROJECT", SQL_NTS,
+        NULL, 0,
+        NULL, 0);
+
+    if (!SQL_SUCCEEDED(ret)) {
+        LogError(SQL_HANDLE_DBC, hDbc);
+        printf("[DB] Connection failed. DSN=2026_GS_PROJECT\n");
+        return false;
+    }
+
+    g_connected = true;
+    printf("[DB] Connected via DSN=2026_GS_PROJECT.\n");
+    return true;
+}
+
+void Database::Disconnect()
+{
+    if (hDbc != SQL_NULL_HDBC) {
+        SQLDisconnect(hDbc);
+        SQLFreeHandle(SQL_HANDLE_DBC, hDbc);
+    }
+    if (hEnv != SQL_NULL_HENV)
+        SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+    g_connected = false;
+}
+
+DbLoginResult Database::Login(const char* username, const char* password,
+                               PlayerSaveData& out)
+{
+    std::lock_guard<std::mutex> lock(g_dbMutex);
+    if (!g_connected) return DBR_FAIL;
+
+    SQLHSTMT hStmt = SQL_NULL_HSTMT;
+    SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+
+    SQLRETURN ret = SQLPrepareA(hStmt,
+        (SQLCHAR*)"SELECT password, x, y, hp, max_hp, exp, level, "
+                  "str_stat, int_stat, dex_stat, luk_stat, stat_pts "
+                  "FROM Users WHERE username = ?",
+        SQL_NTS);
+
+    SQLLEN nameLen = SQL_NTS;
+    SQLBindParameter(hStmt, 1, SQL_PARAM_INPUT,
+        SQL_C_CHAR, SQL_VARCHAR, 20, 0,
+        (SQLPOINTER)username, 0, &nameLen);
+
+    ret = SQLExecute(hStmt);
+    if (!SQL_SUCCEEDED(ret)) {
+        LogError(SQL_HANDLE_STMT, hStmt);
+        SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+        return DBR_FAIL;
+    }
+
+    SQLRETURN fetchRet = SQLFetch(hStmt);
+
+    if (fetchRet == SQL_NO_DATA) {
+        SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+        SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+
+        SQLPrepareA(hStmt,
+            (SQLCHAR*)"INSERT INTO Users (username, password) VALUES (?, ?)",
+            SQL_NTS);
+
+        SQLLEN len1 = SQL_NTS, len2 = SQL_NTS;
+        SQLBindParameter(hStmt, 1, SQL_PARAM_INPUT,
+            SQL_C_CHAR, SQL_VARCHAR, 20, 0, (SQLPOINTER)username, 0, &len1);
+        SQLBindParameter(hStmt, 2, SQL_PARAM_INPUT,
+            SQL_C_CHAR, SQL_VARCHAR, 20, 0, (SQLPOINTER)password, 0, &len2);
+
+        SQLRETURN insRet = SQLExecute(hStmt);
+        SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+
+        if (!SQL_SUCCEEDED(insRet)) {
+            return DBR_FAIL;
+        }
+
+        strncpy_s(out.username, username, 20);
+        out.x = 1000; out.y = 1000;
+        out.hp = 100; out.max_hp = 100;
+        out.exp = 0; out.level = 1;
+        out.str = out.intl = out.dex = out.luk = 5;
+        out.stat_points = 0;
+
+        printf("[DB] Registered new user: %s\n", username);
+        return DBR_NEW_USER;
+    }
+
+    char dbPw[21] = {};
+    SQLLEN colLen = 0;
+    SQLGetData(hStmt, 1, SQL_C_CHAR, dbPw, sizeof(dbPw), &colLen);
+
+    if (strncmp(dbPw, password, 20) != 0) {
+        SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+        return DBR_WRONG_PW;
+    }
+
+    short x = 1000, y = 1000;
+    int hp = 100, max_hp = 100;
+    unsigned long long exp = 0;
+    unsigned char level = 1, str = 5, intl = 5, dex = 5, luk = 5, sp = 0;
+
+    SQLGetData(hStmt, 2,  SQL_C_SSHORT,   &x,      0, &colLen);
+    SQLGetData(hStmt, 3,  SQL_C_SSHORT,   &y,      0, &colLen);
+    SQLGetData(hStmt, 4,  SQL_C_LONG,     &hp,     0, &colLen);
+    SQLGetData(hStmt, 5,  SQL_C_LONG,     &max_hp, 0, &colLen);
+    SQLGetData(hStmt, 6,  SQL_C_UBIGINT,  &exp,    0, &colLen);
+    SQLGetData(hStmt, 7,  SQL_C_UTINYINT, &level,  0, &colLen);
+    SQLGetData(hStmt, 8,  SQL_C_UTINYINT, &str,    0, &colLen);
+    SQLGetData(hStmt, 9,  SQL_C_UTINYINT, &intl,   0, &colLen);
+    SQLGetData(hStmt, 10, SQL_C_UTINYINT, &dex,    0, &colLen);
+    SQLGetData(hStmt, 11, SQL_C_UTINYINT, &luk,    0, &colLen);
+    SQLGetData(hStmt, 12, SQL_C_UTINYINT, &sp,     0, &colLen);
+
+    SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+
+    strncpy_s(out.username, username, 20);
+    out.x = x; out.y = y;
+    out.hp = hp; out.max_hp = max_hp;
+    out.exp = exp; out.level = level;
+    out.str = str; out.intl = intl; out.dex = dex; out.luk = luk;
+    out.stat_points = sp;
+
+    printf("[DB] Login OK: %s\n", username);
+    return DBR_OK;
+}
+
+bool Database::SavePlayer(const PlayerSaveData& data)
+{
+    std::lock_guard<std::mutex> lock(g_dbMutex);
+    if (!g_connected) return false;
+
+    SQLHSTMT hStmt = SQL_NULL_HSTMT;
+    SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
+
+    SQLPrepareA(hStmt,
+        (SQLCHAR*)"UPDATE Users SET x=?, y=?, hp=?, max_hp=?, exp=?, level=?, "
+                  "str_stat=?, int_stat=?, dex_stat=?, luk_stat=?, stat_pts=? "
+                  "WHERE username=?",
+        SQL_NTS);
+
+    short x = data.x, y = data.y;
+    int hp = data.hp, max_hp = data.max_hp;
+    unsigned long long exp = data.exp;
+    unsigned char lv = data.level, st = data.str, it = data.intl,
+                  dx = data.dex,   lk = data.luk,  sp = data.stat_points;
+
+    SQLLEN ind = 0, nameInd = SQL_NTS;
+    SQLBindParameter(hStmt, 1,  SQL_PARAM_INPUT, SQL_C_SSHORT,   SQL_SMALLINT, 5,  0, &x,      0, &ind);
+    SQLBindParameter(hStmt, 2,  SQL_PARAM_INPUT, SQL_C_SSHORT,   SQL_SMALLINT, 5,  0, &y,      0, &ind);
+    SQLBindParameter(hStmt, 3,  SQL_PARAM_INPUT, SQL_C_LONG,     SQL_INTEGER,  10, 0, &hp,     0, &ind);
+    SQLBindParameter(hStmt, 4,  SQL_PARAM_INPUT, SQL_C_LONG,     SQL_INTEGER,  10, 0, &max_hp, 0, &ind);
+    SQLBindParameter(hStmt, 5,  SQL_PARAM_INPUT, SQL_C_UBIGINT,  SQL_BIGINT,   19, 0, &exp,    0, &ind);
+    SQLBindParameter(hStmt, 6,  SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,  3,  0, &lv,     0, &ind);
+    SQLBindParameter(hStmt, 7,  SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,  3,  0, &st,     0, &ind);
+    SQLBindParameter(hStmt, 8,  SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,  3,  0, &it,     0, &ind);
+    SQLBindParameter(hStmt, 9,  SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,  3,  0, &dx,     0, &ind);
+    SQLBindParameter(hStmt, 10, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,  3,  0, &lk,     0, &ind);
+    SQLBindParameter(hStmt, 11, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,  3,  0, &sp,     0, &ind);
+    SQLBindParameter(hStmt, 12, SQL_PARAM_INPUT, SQL_C_CHAR,     SQL_VARCHAR,  20, 0,
+        (SQLPOINTER)data.username, 0, &nameInd);
+
+    SQLRETURN ret = SQLExecute(hStmt);
+    SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+
+    return SQL_SUCCEEDED(ret);
+}

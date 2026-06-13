@@ -39,7 +39,6 @@ public:
 
 
 	// packet
-	void sendLoginSuccess();
 	void doRecv();
 	void doSend(int numBytes, char* mess);
 	void sendAvatarInfo();

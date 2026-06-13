@@ -19,6 +19,9 @@
     <Filter Include="SESSION">
       <UniqueIdentifier>{4d1355f7-302a-4b1b-afb2-3258f99a2cbd}</UniqueIdentifier>
     </Filter>
+    <Filter Include="DB">
+      <UniqueIdentifier>{8c6d1db0-aeec-43c5-ab38-bcbef015626e}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -29,6 +32,9 @@
     </ClCompile>
     <ClCompile Include="SESSION.cpp">
       <Filter>SESSION</Filter>
+    </ClCompile>
+    <ClCompile Include="Database.cpp">
+      <Filter>DB</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -46,6 +52,9 @@
     </ClInclude>
     <ClInclude Include="common.h">
       <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Database.h">
+      <Filter>DB</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

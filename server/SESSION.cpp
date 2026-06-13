@@ -20,7 +20,7 @@ void error_display(const wchar_t* msg, int err_no)
 		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
 		(LPTSTR)&lpMsgBuf, 0, NULL);
 	std::wcout << msg;
-	std::wcout << L" === ¿¡·¯ " << lpMsgBuf << std::endl;
+	std::wcout << L" === ï¿½ï¿½ï¿½ï¿½ " << lpMsgBuf << std::endl;
 	LocalFree(lpMsgBuf);
 }
 
@@ -248,6 +248,39 @@ bool SESSION::processPacket(unsigned char* p)
 				pl->sendRemovePlayer(mId);
 			}
 		}
+	}
+	break;
+	case C2S_CHAT:
+	{
+		C2S_Chat* packet = reinterpret_cast<C2S_Chat*>(p);
+
+		// null-terminate for safety
+		packet->message[MAX_CHAT_MSG_LEN - 1] = '\0';
+
+		S2C_ChatMessage chatPacket;
+		chatPacket.size = sizeof(S2C_ChatMessage);
+		chatPacket.type = S2C_CHAT_MESSAGE;
+		chatPacket.object_id = mId;
+		strncpy_s(chatPacket.message, packet->message, static_cast<size_t>(MAX_CHAT_MSG_LEN - 1));
+		chatPacket.message[MAX_CHAT_MSG_LEN - 1] = '\0';
+
+		// echo to self
+		doSend(chatPacket.size, reinterpret_cast<char*>(&chatPacket));
+
+		// broadcast to visible players
+		m_visible_mutex.lock();
+		auto visible_copy = m_visible_players;
+		m_visible_mutex.unlock();
+
+		for (int id : visible_copy) {
+			auto it = clients.find(id);
+			if (it == clients.end()) continue;
+			std::shared_ptr<SESSION> pl = it->second;
+			if (nullptr == pl || pl->mState != CS_PLAYING) continue;
+			pl->doSend(chatPacket.size, reinterpret_cast<char*>(&chatPacket));
+		}
+
+		std::cout << "[Chat] " << mUsername << ": " << packet->message << std::endl;
 	}
 	break;
 	default:

@@ -22,6 +22,7 @@ enum PACKET_TYPE {
 						// ä�� �޽����� ������ ä�� ��û ��Ŷ
 	C2S_ATTACK,			// Client to Server: Attack request
 						// ���� ��û ��Ŷ (4 ���� ���� ����)
+	C2S_AOE_ATTACK,		// Client to Server: AoE attack (8 surrounding tiles)
 	C2S_TELEPORT,		// Client to Server: Teleport request
 						// �ڷ���Ʈ ��û ��Ŷ (������ ��ǥ ����)
 						// STRESS TEST������ �߰��� ��Ŷ�Դϴ�. ���� ������ ������ ���� ����.
@@ -78,6 +79,11 @@ struct C2S_Chat {
 };
 
 struct C2S_Attack {
+	unsigned char size;
+	PACKET_TYPE   type;
+};
+
+struct C2S_AoeAttack {
 	unsigned char size;
 	PACKET_TYPE   type;
 };

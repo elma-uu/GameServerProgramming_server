@@ -460,6 +460,101 @@ bool SESSION::processPacket(unsigned char* p)
 		}
 	}
 	break;
+	case C2S_AOE_ATTACK:
+	{
+		static const short dx_off[] = { -1,  0,  1, -1, 1, -1, 0, 1 };
+		static const short dy_off[] = { -1, -1, -1,  0, 0,  1, 1, 1 };
+
+		std::vector<int> targets;
+		for (int i = 0; i < 8; ++i) {
+			short tx = mX + dx_off[i];
+			short ty = mY + dy_off[i];
+			if (tx < 0 || tx >= WORLD_WIDTH || ty < 0 || ty >= WORLD_HEIGHT) continue;
+			int sid = get_sector_id(tx, ty);
+			auto sit = sectors.find(sid);
+			if (sit == sectors.end()) continue;
+			for (int id : sit->second) {
+				if (id == mId) continue;
+				auto cit = clients.find(id);
+				if (cit == clients.end()) continue;
+				std::shared_ptr<SESSION> tgt = cit->second;
+				if (!tgt || tgt->mState != CS_PLAYING) continue;
+				if (tgt->mX == tx && tgt->mY == ty)
+					targets.push_back(id);
+			}
+		}
+
+		bool stat_changed = false;
+		for (int target_id : targets) {
+			std::shared_ptr<SESSION> target = clients[target_id];
+			if (!target) continue;
+
+			int damage = static_cast<int>(mStr) * 150;
+			bool is_crit = (rand() % 100) < static_cast<int>(mLuk);
+			if (is_crit) damage *= 2;
+
+			target->mHp -= damage;
+			if (target->mHp <= 0 && target->is_player) target->mHp = 1;
+			bool killed = (target->mHp <= 0 && !target->is_player);
+			if (killed) target->mHp = 0;
+
+			if (killed) {
+				target->m_visible_mutex.lock();
+				auto watchers = target->m_visible_players;
+				target->m_visible_players.clear();
+				target->m_visible_mutex.unlock();
+
+				S2C_RemoveObject rp;
+				rp.size = sizeof(S2C_RemoveObject);
+				rp.type = S2C_REMOVE_OBJECT;
+				rp.object_id = target_id;
+				for (int pid : watchers) {
+					auto pit = clients.find(pid);
+					if (pit == clients.end()) continue;
+					std::shared_ptr<SESSION> pl = pit->second;
+					if (!pl || pl->mState != CS_PLAYING) continue;
+					pl->m_visible_mutex.lock();
+					pl->m_visible_npcs.erase(target_id);
+					pl->m_visible_mutex.unlock();
+					pl->doSend(rp.size, reinterpret_cast<char*>(&rp));
+				}
+				target->mHp = target->mMaxHp;
+
+				mExp += static_cast<unsigned long long>(target->mLevel) * 100ULL;
+				while (mExp >= static_cast<unsigned long long>(mLevel) * 1000ULL && mLevel < 100) {
+					mExp -= static_cast<unsigned long long>(mLevel) * 1000ULL;
+					mLevel++;
+					mStatPoints += 5;
+				}
+				stat_changed = true;
+			} else {
+				S2C_StatusChange sc;
+				sc.size = sizeof(S2C_StatusChange);
+				sc.type = S2C_STATUS_CHANGE;
+				sc.object_id = target_id;
+				sc.hp = target->mHp;
+				sc.max_hp = target->mMaxHp;
+				sc.exp = target->mExp;
+				sc.level = target->mLevel;
+
+				target->m_visible_mutex.lock();
+				auto watchers = target->m_visible_players;
+				target->m_visible_mutex.unlock();
+				for (int pid : watchers) {
+					auto pit = clients.find(pid);
+					if (pit == clients.end()) continue;
+					std::shared_ptr<SESSION> pl = pit->second;
+					if (!pl || pl->mState != CS_PLAYING) continue;
+					pl->doSend(sc.size, reinterpret_cast<char*>(&sc));
+				}
+				if (target->is_player)
+					target->doSend(sc.size, reinterpret_cast<char*>(&sc));
+			}
+		}
+
+		if (stat_changed) sendAvatarInfo();
+	}
+	break;
 	case C2S_CHAT:
 	{
 		C2S_Chat* packet = reinterpret_cast<C2S_Chat*>(p);

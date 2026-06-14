@@ -47,6 +47,9 @@ void initNpcs()
 			sprintf_s(npc->mUsername, MAX_NAME_LEN, "%s", npcName);
 		}
 
+		npc->mSpawnX = npc->mX;
+		npc->mSpawnY = npc->mY;
+		npc->mIsDead = false;
 		npc->mState = CS_PLAYING;
 
 		int sector_id = get_sector_id(npc->mX, npc->mY);
@@ -75,6 +78,57 @@ void npc_timer_thread()
 			PostQueuedCompletionStatus(g_iocp, 1,
 				static_cast<ULONG_PTR>(npc_id), &over->m_over);
 		}
+	}
+}
+
+void respawn_timer_thread()
+{
+	while (true) {
+		std::this_thread::sleep_for(std::chrono::seconds(20));
+
+		int revived = 0;
+		for (int i = 0; i < NUM_NPCS; ++i) {
+			int npc_id = NPC_ID_START + i;
+			auto it = clients.find(npc_id);
+			if (it == clients.end()) continue;
+			std::shared_ptr<SESSION> npc = it->second;
+			if (!npc || !npc->mIsDead) continue;
+
+			// Revive at spawn position
+			npc->mHp     = npc->mMaxHp;
+			npc->mIsDead = false;
+			npc->mX      = npc->mSpawnX;
+			npc->mY      = npc->mSpawnY;
+			npc->mTargetId       = -1;
+			npc->mChaseRemaining = 0;
+
+			// Insert back into sector
+			int new_sector = get_sector_id(npc->mX, npc->mY);
+			sectors[new_sector].insert(npc_id);
+			npc->mSector_id = new_sector;
+
+			// Notify all players who can currently see the spawn tile
+			for (auto& [pid, pl] : clients) {
+				if (!pl || !pl->is_player || pl->mState != CS_PLAYING) continue;
+				if (!pl->is_visible(npc->mSpawnX, npc->mSpawnY)) continue;
+
+				// Update mutual visibility sets
+				pl->m_visible_mutex.lock();
+				bool alreadyVisible = (pl->m_visible_npcs.count(npc_id) != 0);
+				if (!alreadyVisible) pl->m_visible_npcs.insert(npc_id);
+				pl->m_visible_mutex.unlock();
+
+				npc->m_visible_mutex.lock();
+				npc->m_visible_players.insert(pid);
+				npc->m_visible_mutex.unlock();
+
+				if (!alreadyVisible)
+					pl->sendAddNpc(npc_id);
+			}
+			++revived;
+		}
+		if (revived > 0)
+			std::cout << "[Respawn] Revived " << revived << " NPC(s).\n";
 	}
 }
 
@@ -286,6 +340,7 @@ int main()
 
 	// Start background threads
 	std::thread(npc_timer_thread).detach();
+	std::thread(respawn_timer_thread).detach();
 	std::thread(db_save_thread).detach();
 
 	std::vector<std::thread> worker_threads;

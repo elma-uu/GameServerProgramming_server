@@ -14,7 +14,8 @@ public:
 	CL_STATE mState;
 	RingBuffer mRecvBuffer;
 	char mUsername[MAX_NAME_LEN];
-	short mX, mY;
+	short mX, mY;      // tile coordinates for game logic
+	int mPixelX, mPixelY; // pixel coordinates for sync broadcasts
 	int mMove_time;
 	int mSector_id;
 	DIRECTION mDirection;
@@ -35,6 +36,10 @@ public:
 	// Chase state (NPC only)
 	int mTargetId;        // player ID being chased; -1 = wandering
 	int mChaseRemaining;  // move steps left before giving up chase
+
+	// Spawn / roam state (NPC only)
+	short mSpawnX, mSpawnY; // original spawn tile; roam stays within +/-10 tiles
+	bool  mIsDead;          // true while waiting for respawn timer
 
 	// Party
 	int mPartyId;         // -1 = not in a party

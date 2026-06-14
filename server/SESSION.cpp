@@ -40,6 +40,8 @@ SESSION::SESSION(SOCKET s, int id)
 	mState = CS_CONNECT;
 	mX = 1000;
 	mY = 1000;
+	mPixelX = 1000 * 50 + 25;
+	mPixelY = 1000 * 50 + 25;
 	mMove_time = 0;
 	mSector_id = 0;
 	mDirection = DOWN;
@@ -57,6 +59,8 @@ SESSION::SESSION(int id, bool isPlayer)
 	mState = CS_CONNECT;
 	mX = 1000;
 	mY = 1000;
+	mPixelX = 1000 * 50 + 25;
+	mPixelY = 1000 * 50 + 25;
 	mMove_time = 0;
 	mSector_id = 0;
 	mDirection = DOWN;
@@ -64,6 +68,7 @@ SESSION::SESSION(int id, bool isPlayer)
 	mHp = 100; mMaxHp = 100; mExp = 0; mLevel = 1;
 	mStr = 5; mIntl = 5; mDex = 5; mLuk = 5; mStatPoints = 0;
 	mTargetId = -1; mChaseRemaining = 0;
+	mSpawnX = 1000; mSpawnY = 1000; mIsDead = false;
 	mPartyId = -1;
 	mVisualId = 0;
 }
@@ -183,8 +188,8 @@ void SESSION::sendMovePacket(int mover)
 	packet.object_id = mover;
 	std::shared_ptr<SESSION> pl = clients[mover];
 	if (nullptr == pl) return;
-	packet.x = pl->mX;
-	packet.y = pl->mY;
+	packet.x = pl->mPixelX;
+	packet.y = pl->mPixelY;
 	packet.move_time = pl->mMove_time;
 	doSend(packet.size, reinterpret_cast<char*>(&packet));
 }
@@ -226,6 +231,7 @@ bool SESSION::processPacket(unsigned char* p)
 		// Load data from DB into session
 		strncpy_s(mUsername, saveData.username, MAX_NAME_LEN);
 		mX = saveData.x; mY = saveData.y;
+		mPixelX = mX * 50 + 25; mPixelY = mY * 50 + 25;
 		mHp = saveData.hp; mMaxHp = saveData.max_hp;
 		mExp = saveData.exp; mLevel = saveData.level;
 		mStr = saveData.str; mIntl = saveData.intl;
@@ -246,10 +252,10 @@ bool SESSION::processPacket(unsigned char* p)
 		std::cout << "Player[" << mId << "] logged in as " << mUsername << std::endl;
 
 		if (dbRes == DBR_NEW_USER) {
-			// New account — wait for the client to pick a character
+			// New account - wait for the client to pick a character
 			mState = CS_CHAR_SELECT;
 		} else {
-			// Existing user — enter the world immediately with saved visual_id
+			// Existing user - enter the world immediately with saved visual_id
 			enterWorld();
 		}
 	}
@@ -278,10 +284,13 @@ bool SESSION::processPacket(unsigned char* p)
 	case C2S_MOVE:
 	{
 		C2S_Move* packet = reinterpret_cast<C2S_Move*>(p);
-		mX = packet->x;
-		mY = packet->y;
+		mPixelX = packet->x;
+		mPixelY = packet->y;
 		mMove_time = packet->move_time;
 		mDirection = packet->dir;
+		// derive tile from pixel for game logic (collision, sectors, etc.)
+		mX = static_cast<short>(mPixelX / 50);
+		mY = static_cast<short>(mPixelY / 50);
 
 		auto old_v_players = m_visible_players;
 
@@ -360,6 +369,10 @@ bool SESSION::processPacket(unsigned char* p)
 	break;
 	case C2S_ATTACK:
 	{
+		// Use mouse-based direction from packet
+		C2S_Attack* atk_pkt = reinterpret_cast<C2S_Attack*>(p);
+		mDirection = atk_pkt->dir;
+
 		// Compute direction delta
 		short dx = 0, dy = 0;
 		switch (mDirection) {
@@ -416,11 +429,12 @@ bool SESSION::processPacket(unsigned char* p)
 		// Broadcast damage number to all watchers of the target
 		{
 			S2C_DamageNumber dn;
-			dn.size      = sizeof(S2C_DamageNumber);
-			dn.type      = S2C_DAMAGE_NUMBER;
-			dn.object_id = target_id;
-			dn.damage    = damage;
-			dn.is_crit   = is_crit ? 1 : 0;
+			dn.size        = sizeof(S2C_DamageNumber);
+			dn.type        = S2C_DAMAGE_NUMBER;
+			dn.attacker_id = mId;
+			dn.object_id   = target_id;
+			dn.damage      = damage;
+			dn.is_crit     = is_crit ? 1 : 0;
 			target->m_visible_mutex.lock();
 			auto dn_watchers = target->m_visible_players;
 			target->m_visible_mutex.unlock();
@@ -455,11 +469,12 @@ bool SESSION::processPacket(unsigned char* p)
 				pl->doSend(rp.size, reinterpret_cast<char*>(&rp));
 			}
 
-			// Respawn NPC with full HP (stays in place, reappears on next player move)
-			target->mHp = target->mMaxHp;
+			// Mark dead - respawn timer revives after 20 s at spawn position
+			target->mIsDead = true;
+			sectors[target->mSector_id].erase(target_id);
 
-			// Give EXP: lv1=10, each level +5
-			unsigned long long kill_exp = static_cast<unsigned long long>(10 + (static_cast<int>(target->mLevel) - 1) * 5);
+			// Give EXP: level * level * 2
+			unsigned long long kill_exp = static_cast<unsigned long long>(target->mLevel) * target->mLevel * 2ULL;
 			mExp += kill_exp;
 			// Level-up threshold: lv1=100, each level +20
 			while (mLevel < 100) {
@@ -508,6 +523,10 @@ bool SESSION::processPacket(unsigned char* p)
 	break;
 	case C2S_AOE_ATTACK:
 	{
+		// Use mouse-based direction from packet
+		C2S_AoeAttack* aoe_pkt = reinterpret_cast<C2S_AoeAttack*>(p);
+		mDirection = aoe_pkt->dir;
+
 		static const short dx_off[] = { -1,  0,  1, -1, 1, -1, 0, 1 };
 		static const short dy_off[] = { -1, -1, -1,  0, 0,  1, 1, 1 };
 
@@ -549,11 +568,12 @@ bool SESSION::processPacket(unsigned char* p)
 			// Damage number to all watchers
 			{
 				S2C_DamageNumber dn;
-				dn.size      = sizeof(S2C_DamageNumber);
-				dn.type      = S2C_DAMAGE_NUMBER;
-				dn.object_id = target_id;
-				dn.damage    = damage;
-				dn.is_crit   = is_crit ? 1 : 0;
+				dn.size        = sizeof(S2C_DamageNumber);
+				dn.type        = S2C_DAMAGE_NUMBER;
+				dn.attacker_id = mId;
+				dn.object_id   = target_id;
+				dn.damage      = damage;
+				dn.is_crit     = is_crit ? 1 : 0;
 				target->m_visible_mutex.lock();
 				auto dn_w = target->m_visible_players;
 				target->m_visible_mutex.unlock();
@@ -803,7 +823,7 @@ void SESSION::sendAddNpc(int npc_id)
 	npc->m_visible_players.insert(mId);
 	npc->m_visible_mutex.unlock();
 
-	// Map NPC name → monster visual_id (must match client MON_* enum)
+	// Map NPC name to monster visual_id (must match client MON_* enum)
 	// 0=Dog  1=Skeleton(Small)  2=Skel.Knight(Big_Normal)  3=Skel.Mage(Magician_Ice)
 	int monVisual = 0;
 	const char* nm = npc->mUsername;
@@ -853,6 +873,8 @@ void SESSION::sendRemoveNpc(int npc_id)
 
 void SESSION::doNpcMove()
 {
+	if (mIsDead) return;
+
 	thread_local std::mt19937 rng(std::random_device{}());
 	thread_local std::uniform_int_distribution<int> dir_dist(0, 3);
 
@@ -881,14 +903,19 @@ void SESSION::doNpcMove()
 	}
 
 	if (mTargetId < 0) {
-		// Wander mode: random direction
+		// Roam within +/-10 tiles of spawn (20x20 area), clamped to world bounds
+		short minX = static_cast<short>(max(0,             (int)mSpawnX - 10));
+		short maxX = static_cast<short>(min(WORLD_WIDTH-1, (int)mSpawnX + 10));
+		short minY = static_cast<short>(max(0,              (int)mSpawnY - 10));
+		short maxY = static_cast<short>(min(WORLD_HEIGHT-1, (int)mSpawnY + 10));
+
 		int dir = dir_dist(rng);
 		newX = mX; newY = mY;
 		switch (dir) {
-		case 0: if (newY > 0)              newY--; break;
-		case 1: if (newY < WORLD_HEIGHT-1) newY++; break;
-		case 2: if (newX > 0)              newX--; break;
-		case 3: if (newX < WORLD_WIDTH-1)  newX++; break;
+		case 0: if (newY > minY) newY--; break;
+		case 1: if (newY < maxY) newY++; break;
+		case 2: if (newX > minX) newX--; break;
+		case 3: if (newX < maxX) newX++; break;
 		}
 	}
 
@@ -913,8 +940,8 @@ void SESSION::doNpcMove()
 	mp.size = sizeof(S2C_MoveObject);
 	mp.type = S2C_MOVE_OBJECT;
 	mp.object_id = mId;
-	mp.x = mX;
-	mp.y = mY;
+	mp.x = mX * 50 + 25;
+	mp.y = mY * 50 + 25;
 	mp.move_time = NPC_MOVE_INTERVAL;
 
 	m_visible_mutex.lock();

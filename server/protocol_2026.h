@@ -79,8 +79,8 @@ struct C2S_Move {
 	unsigned char size;
 	PACKET_TYPE   type;
 	DIRECTION dir;
-	short x;
-	short y;
+	int x;   // pixel coordinate
+	int y;   // pixel coordinate
 	int move_time; // in milliseconds
 };
 
@@ -93,11 +93,13 @@ struct C2S_Chat {
 struct C2S_Attack {
 	unsigned char size;
 	PACKET_TYPE   type;
+	DIRECTION     dir;  // mouse-based attack direction
 };
 
 struct C2S_AoeAttack {
 	unsigned char size;
 	PACKET_TYPE   type;
+	DIRECTION     dir;  // mouse-based attack direction
 };
 
 struct C2S_Teleport {
@@ -156,8 +158,8 @@ struct S2C_MoveObject {
 	unsigned char size;
 	PACKET_TYPE   type;
 	int object_id;
-	short x;
-	short y;
+	int x;   // pixel coordinate
+	int y;   // pixel coordinate
 	int move_time; // in milliseconds
 };
 
@@ -254,9 +256,10 @@ struct C2S_CharSelect {
 struct S2C_DamageNumber {
 	unsigned char size;
 	PACKET_TYPE   type;
-	int           object_id; // target that received the hit
+	int           attacker_id; // player who dealt the damage
+	int           object_id;   // target (monster)
 	int           damage;
-	unsigned char is_crit;   // 1 = critical hit
+	unsigned char is_crit;
 };
 
 #pragma pack(pop) // Restore default packing

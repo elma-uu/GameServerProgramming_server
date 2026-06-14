@@ -423,10 +423,13 @@ bool SESSION::processPacket(unsigned char* p)
 			// Respawn NPC with full HP (stays in place, reappears on next player move)
 			target->mHp = target->mMaxHp;
 
-			// Give EXP to attacker
-			mExp += static_cast<unsigned long long>(target->mLevel) * 100ULL;
-			while (mExp >= static_cast<unsigned long long>(mLevel) * 1000ULL && mLevel < 100) {
-				mExp -= static_cast<unsigned long long>(mLevel) * 1000ULL;
+			// Give EXP: lv1=10, each level +5
+			mExp += static_cast<unsigned long long>(10 + (static_cast<int>(target->mLevel) - 1) * 5);
+			// Level-up threshold: lv1=100, each level +20
+			while (mLevel < 100) {
+				unsigned long long required = 100ULL + static_cast<unsigned long long>(mLevel - 1) * 20ULL;
+				if (mExp < required) break;
+				mExp -= required;
 				mLevel++;
 				mStatPoints += 5;
 			}
@@ -520,9 +523,13 @@ bool SESSION::processPacket(unsigned char* p)
 				}
 				target->mHp = target->mMaxHp;
 
-				mExp += static_cast<unsigned long long>(target->mLevel) * 100ULL;
-				while (mExp >= static_cast<unsigned long long>(mLevel) * 1000ULL && mLevel < 100) {
-					mExp -= static_cast<unsigned long long>(mLevel) * 1000ULL;
+				// Give EXP: lv1=10, each level +5
+				mExp += static_cast<unsigned long long>(10 + (static_cast<int>(target->mLevel) - 1) * 5);
+				// Level-up threshold: lv1=100, each level +20
+				while (mLevel < 100) {
+					unsigned long long required = 100ULL + static_cast<unsigned long long>(mLevel - 1) * 20ULL;
+					if (mExp < required) break;
+					mExp -= required;
 					mLevel++;
 					mStatPoints += 5;
 				}

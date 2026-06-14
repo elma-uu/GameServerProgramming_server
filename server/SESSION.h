@@ -2,6 +2,7 @@
 #include "common.h"
 #include "EXP_OVER.h"
 #include "pch.h"
+#include "PartyManager.h"
 
 enum CL_STATE { CS_CONNECT, CS_PLAYING, CS_LOGOUT };
 
@@ -34,6 +35,9 @@ public:
 	int mTargetId;        // player ID being chased; -1 = wandering
 	int mChaseRemaining;  // move steps left before giving up chase
 
+	// Party
+	int mPartyId;         // -1 = not in a party
+
 public:
 
 	SESSION();
@@ -55,6 +59,11 @@ public:
 	// call this whenever the player levels up to grant stat points
 	void onLevelUp() { mStatPoints += 5; sendStatInfo(); }
 
+	// party packets
+	void sendPartyUpdate(int partyId);
+	void sendPartyList();
+	void givePartyExp(unsigned long long kill_exp);
+
 
 	// sector
 	bool is_visible(short x, short y);
@@ -67,6 +76,9 @@ public:
 	void doNpcMove();
 };
 
+// Sends S2C_PartyUpdate to every online member of partyId
+void broadcastPartyUpdate(int partyId);
+
 inline void disconnect(int key)
 {
 	std::cout << "client " << key << " disconnected" << std::endl;
@@ -75,6 +87,14 @@ inline void disconnect(int key)
 	{
 		cla->mState = CS_LOGOUT;
 		sectors[cla->mSector_id].erase(key);
+
+		// Party cleanup
+		if (cla->mPartyId >= 0) {
+			int partyId = cla->mPartyId;
+			PartyManager::LeaveParty(key);
+			cla->mPartyId = -1;
+			broadcastPartyUpdate(partyId);
+		}
 		auto visible_copy = cla->m_visible_players;
 		for (auto& other : visible_copy)
 		{

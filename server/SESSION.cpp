@@ -2,6 +2,7 @@
 #include "SESSION.h"
 #include "Database.h"
 #include "LuaManager.h"
+#include "PartyManager.h"
 
 // Global variable definitions
 tbb::concurrent_unordered_map<int, std::shared_ptr<SESSION>> clients;
@@ -45,6 +46,7 @@ SESSION::SESSION(SOCKET s, int id)
 	is_player = true;
 	mHp = 100; mMaxHp = 100; mExp = 0; mLevel = 1;
 	mStr = 5; mIntl = 5; mDex = 5; mLuk = 5; mStatPoints = 0;
+	mPartyId = -1;
 }
 
 SESSION::SESSION(int id, bool isPlayer)
@@ -61,6 +63,7 @@ SESSION::SESSION(int id, bool isPlayer)
 	mHp = 100; mMaxHp = 100; mExp = 0; mLevel = 1;
 	mStr = 5; mIntl = 5; mDex = 5; mLuk = 5; mStatPoints = 0;
 	mTargetId = -1; mChaseRemaining = 0;
+	mPartyId = -1;
 }
 
 SESSION::~SESSION()
@@ -426,7 +429,8 @@ bool SESSION::processPacket(unsigned char* p)
 			target->mHp = target->mMaxHp;
 
 			// Give EXP: lv1=10, each level +5
-			mExp += static_cast<unsigned long long>(10 + (static_cast<int>(target->mLevel) - 1) * 5);
+			unsigned long long kill_exp = static_cast<unsigned long long>(10 + (static_cast<int>(target->mLevel) - 1) * 5);
+			mExp += kill_exp;
 			// Level-up threshold: lv1=100, each level +20
 			while (mLevel < 100) {
 				unsigned long long required = 100ULL + static_cast<unsigned long long>(mLevel - 1) * 20ULL;
@@ -436,6 +440,7 @@ bool SESSION::processPacket(unsigned char* p)
 				mStatPoints += 5;
 			}
 			sendAvatarInfo();
+			givePartyExp(kill_exp);
 		} else {
 			// Broadcast HP change to everyone watching the target
 			S2C_StatusChange sc;
@@ -532,7 +537,8 @@ bool SESSION::processPacket(unsigned char* p)
 				target->mHp = target->mMaxHp;
 
 				// Give EXP: lv1=10, each level +5
-				mExp += static_cast<unsigned long long>(10 + (static_cast<int>(target->mLevel) - 1) * 5);
+				unsigned long long kill_exp = static_cast<unsigned long long>(10 + (static_cast<int>(target->mLevel) - 1) * 5);
+				mExp += kill_exp;
 				// Level-up threshold: lv1=100, each level +20
 				while (mLevel < 100) {
 					unsigned long long required = 100ULL + static_cast<unsigned long long>(mLevel - 1) * 20ULL;
@@ -541,6 +547,7 @@ bool SESSION::processPacket(unsigned char* p)
 					mLevel++;
 					mStatPoints += 5;
 				}
+				givePartyExp(kill_exp);
 				stat_changed = true;
 			} else {
 				S2C_StatusChange sc;
@@ -607,6 +614,51 @@ bool SESSION::processPacket(unsigned char* p)
 		}
 
 		std::cout << "[Chat] " << mUsername << ": " << packet->message << std::endl;
+	}
+	break;
+	case C2S_PARTY_CREATE:
+	{
+		if (mPartyId >= 0) break; // already in a party
+		int newId = PartyManager::CreateParty(mId);
+		if (newId < 0) break;
+		mPartyId = newId;
+		sendPartyUpdate(newId); // just inform self (party of 1)
+		std::cout << "Player[" << mId << "] created party " << newId << "\n";
+	}
+	break;
+	case C2S_PARTY_JOIN:
+	{
+		if (mPartyId >= 0) break; // already in a party
+		C2S_PartyJoin* pkt = reinterpret_cast<C2S_PartyJoin*>(p);
+		int targetParty = pkt->party_id;
+		if (!PartyManager::JoinParty(targetParty, mId)) break;
+		mPartyId = targetParty;
+		broadcastPartyUpdate(targetParty);
+		std::cout << "Player[" << mId << "] joined party " << targetParty << "\n";
+	}
+	break;
+	case C2S_PARTY_LEAVE:
+	{
+		if (mPartyId < 0) break;
+		int oldParty = mPartyId;
+		PartyManager::LeaveParty(mId);
+		mPartyId = -1;
+		// Tell self: no longer in a party
+		{
+			S2C_PartyUpdate out{};
+			out.size = sizeof(S2C_PartyUpdate);
+			out.type = S2C_PARTY_UPDATE;
+			out.party_id = -1;
+			out.member_count = 0;
+			doSend(out.size, reinterpret_cast<char*>(&out));
+		}
+		broadcastPartyUpdate(oldParty);
+		std::cout << "Player[" << mId << "] left party " << oldParty << "\n";
+	}
+	break;
+	case C2S_PARTY_LIST_REQ:
+	{
+		sendPartyList();
 	}
 	break;
 	default:
@@ -832,5 +884,100 @@ void SESSION::doNpcMove()
 		else {
 			pl->doSend(mp.size, reinterpret_cast<char*>(&mp));
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Party helpers
+// ---------------------------------------------------------------------------
+
+static void fillPartyUpdatePacket(S2C_PartyUpdate& out, int partyId)
+{
+	auto members = PartyManager::GetMembers(partyId);
+	out.size = sizeof(S2C_PartyUpdate);
+	out.type = S2C_PARTY_UPDATE;
+	out.party_id = partyId;
+	out.member_count = static_cast<unsigned char>(min((int)members.size(), 4));
+	for (int i = 0; i < (int)out.member_count; ++i) {
+		int mid = members[i];
+		out.members[i].player_id = mid;
+		auto it = clients.find(mid);
+		if (it != clients.end() && it->second) {
+			auto& m = it->second;
+			strncpy_s(out.members[i].name, m->mUsername, MAX_NAME_LEN - 1);
+			out.members[i].name[MAX_NAME_LEN - 1] = '\0';
+			out.members[i].hp      = m->mHp;
+			out.members[i].max_hp  = m->mMaxHp;
+			out.members[i].level   = m->mLevel;
+		}
+	}
+}
+
+void broadcastPartyUpdate(int partyId)
+{
+	S2C_PartyUpdate out{};
+	fillPartyUpdatePacket(out, partyId);
+	auto members = PartyManager::GetMembers(partyId);
+	for (int mid : members) {
+		auto it = clients.find(mid);
+		if (it == clients.end() || !it->second) continue;
+		auto& pl = it->second;
+		if (!pl->is_player || pl->mState != CS_PLAYING) continue;
+		pl->doSend(out.size, reinterpret_cast<char*>(&out));
+	}
+}
+
+void SESSION::sendPartyUpdate(int partyId)
+{
+	S2C_PartyUpdate out{};
+	fillPartyUpdatePacket(out, partyId);
+	doSend(out.size, reinterpret_cast<char*>(&out));
+}
+
+void SESSION::sendPartyList()
+{
+	auto allParties = PartyManager::GetAll();
+	S2C_PartyList out{};
+	out.size = sizeof(S2C_PartyList);
+	out.type = S2C_PARTY_LIST;
+	out.party_count = static_cast<unsigned char>(min((int)allParties.size(), 8));
+	for (int i = 0; i < (int)out.party_count; ++i) {
+		auto& party = allParties[i];
+		out.entries[i].party_id     = party.party_id;
+		out.entries[i].member_count = static_cast<unsigned char>(party.member_ids.size());
+		if (!party.member_ids.empty()) {
+			int leaderId = party.member_ids[0];
+			auto it = clients.find(leaderId);
+			if (it != clients.end() && it->second) {
+				strncpy_s(out.entries[i].leader_name, it->second->mUsername, MAX_NAME_LEN - 1);
+				out.entries[i].leader_name[MAX_NAME_LEN - 1] = '\0';
+			}
+		}
+	}
+	doSend(out.size, reinterpret_cast<char*>(&out));
+}
+
+void SESSION::givePartyExp(unsigned long long kill_exp)
+{
+	unsigned long long bonus = kill_exp / 2;
+	if (bonus == 0 || mPartyId < 0) return;
+
+	auto members = PartyManager::GetMembers(mPartyId);
+	for (int memberId : members) {
+		if (memberId == mId) continue;
+		auto it = clients.find(memberId);
+		if (it == clients.end() || !it->second) continue;
+		auto& member = it->second;
+		if (!member->is_player || member->mState != CS_PLAYING) continue;
+
+		member->mExp += bonus;
+		while (member->mLevel < 100) {
+			unsigned long long req = 100ULL + static_cast<unsigned long long>(member->mLevel - 1) * 20ULL;
+			if (member->mExp < req) break;
+			member->mExp -= req;
+			member->mLevel++;
+			member->mStatPoints += 5;
+		}
+		member->sendAvatarInfo();
 	}
 }

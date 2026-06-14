@@ -38,6 +38,14 @@ enum PACKET_TYPE {
 	S2C_STATUS_CHANGE,	//	Server to Client: Update player or NPC status (e.g., health, buffs)
 	C2S_STAT_INVEST,	//	Client to Server: invest one stat point
 	S2C_STAT_INFO,		//	Server to Client: current stat values and available points
+
+	C2S_PARTY_CREATE,	//	Client to Server: create a new party
+	C2S_PARTY_JOIN,		//	Client to Server: join existing party
+	C2S_PARTY_LEAVE,	//	Client to Server: leave current party
+	C2S_PARTY_LIST_REQ,	//	Client to Server: request party list
+
+	S2C_PARTY_LIST,		//	Server to Client: list of all parties
+	S2C_PARTY_UPDATE,	//	Server to Client: current party membership/state
 };
 
 enum STAT_TYPE : unsigned char {
@@ -181,6 +189,56 @@ struct S2C_StatInfo {
 	unsigned char dex;
 	unsigned char luk;
 	unsigned char stat_points;
+};
+
+struct PartyMemberInfo {
+	int           player_id;
+	char          name[MAX_NAME_LEN];
+	int           hp;
+	int           max_hp;
+	unsigned char level;
+};
+
+struct S2C_PartyUpdate {
+	unsigned char   size;
+	PACKET_TYPE     type;
+	int             party_id;       // -1 = left / no party
+	unsigned char   member_count;
+	PartyMemberInfo members[4];
+};
+
+struct PartyListEntry {
+	int           party_id;
+	char          leader_name[MAX_NAME_LEN];
+	unsigned char member_count;
+};
+
+struct S2C_PartyList {
+	unsigned char  size;
+	PACKET_TYPE    type;
+	unsigned char  party_count;
+	PartyListEntry entries[8];
+};
+
+struct C2S_PartyCreate {
+	unsigned char size;
+	PACKET_TYPE   type;
+};
+
+struct C2S_PartyJoin {
+	unsigned char size;
+	PACKET_TYPE   type;
+	int           party_id;
+};
+
+struct C2S_PartyLeave {
+	unsigned char size;
+	PACKET_TYPE   type;
+};
+
+struct C2S_PartyListReq {
+	unsigned char size;
+	PACKET_TYPE   type;
 };
 
 #pragma pack(pop) // Restore default packing

@@ -141,6 +141,7 @@
     <ClCompile Include="EXP_OVER.cpp" />
     <ClCompile Include="LuaManager.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="PartyManager.cpp" />
     <ClCompile Include="SESSION.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -148,6 +149,7 @@
     <ClInclude Include="Database.h" />
     <ClInclude Include="EXP_OVER.h" />
     <ClInclude Include="LuaManager.h" />
+    <ClInclude Include="PartyManager.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="protocol_2026.h" />
     <ClInclude Include="SESSION.h" />

@@ -66,6 +66,39 @@ void initNpcs()
 	std::cout << "Initialized " << NUM_NPCS << " NPCs.\n";
 }
 
+// Triangle layout (center 1000,1000):
+//         [A]           <- Ability top vertex  (1000, 993)
+//
+//   [R]         [S]    <- Restaurant bottom-left (994, 1007), Shop bottom-right (1006, 1007)
+void initTownNpcs()
+{
+	struct TownNpcDef { short x; short y; int visualId; const char* name; };
+	const TownNpcDef defs[3] = {
+		{ 1000, 993,  VISUAL_TOWN_ABILITY,    "Ability NPC" },
+		{  994, 1007, VISUAL_TOWN_RESTAURANT, "Restaurant"  },
+		{ 1006, 1007, VISUAL_TOWN_SHOP,       "Shop"        },
+	};
+
+	for (int i = 0; i < 3; ++i) {
+		int id = TOWN_NPC_ID_START + i;
+		auto npc = std::make_shared<SESSION>(id, false);
+		npc->mX = defs[i].x; npc->mY = defs[i].y;
+		npc->mSpawnX = npc->mX; npc->mSpawnY = npc->mY;
+		npc->mIsDead = false; npc->mIsStationary = true;
+		npc->mVisualId = defs[i].visualId;
+		npc->mHp = npc->mMaxHp = 999999;
+		npc->mLevel = 1;
+		sprintf_s(npc->mUsername, MAX_NAME_LEN, "%s", defs[i].name);
+		npc->mState = CS_PLAYING;
+		int sid = get_sector_id(npc->mX, npc->mY);
+		sectors[sid].insert(id);
+		npc->mSector_id = sid;
+		clients[id] = npc;
+	}
+
+	std::cout << "Initialized 3 town NPCs.\n";
+}
+
 void npc_timer_thread()
 {
 	while (true) {
@@ -339,6 +372,7 @@ int main()
 
 	// Initialize NPCs before accepting players
 	initNpcs();
+	initTownNpcs();
 
 	// Start background threads
 	std::thread(npc_timer_thread).detach();

@@ -64,7 +64,7 @@ SESSION::SESSION(int id, bool isPlayer)
 	mHp = 100; mMaxHp = 100; mExp = 0; mLevel = 1;
 	mStr = 5; mIntl = 5; mDex = 5; mLuk = 5; mStatPoints = 0;
 	mTargetId = -1; mChaseRemaining = 0;
-	mSpawnX = 1000; mSpawnY = 1000; mIsDead = false;
+	mSpawnX = 1000; mSpawnY = 1000; mIsDead = false; mIsStationary = false;
 	mPartyId = -1;
 	mVisualId = 0;
 }
@@ -865,7 +865,7 @@ void SESSION::sendRemoveNpc(int npc_id)
 
 void SESSION::doNpcMove()
 {
-	if (mIsDead) return;
+	if (mIsDead || mIsStationary) return;
 
 	thread_local std::mt19937 rng(std::random_device{}());
 	thread_local std::uniform_int_distribution<int> dir_dist(0, 3);

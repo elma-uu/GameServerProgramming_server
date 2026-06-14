@@ -7,6 +7,12 @@ constexpr int MAX_PLAYERS = 10000;
 constexpr int NUM_NPCS = 200000;
 constexpr int NPC_ID_START = 1000000;
 constexpr int NPC_MOVE_INTERVAL = 500; // in milliseconds
+constexpr int TOWN_NPC_ID_START = NPC_ID_START + NUM_NPCS; // IDs after monster NPCs
+
+// Town NPC visual IDs (monster visual IDs are 0-3)
+constexpr int VISUAL_TOWN_ABILITY     = 4;
+constexpr int VISUAL_TOWN_RESTAURANT  = 5;
+constexpr int VISUAL_TOWN_SHOP        = 6;
 constexpr int MAX_NAME_LEN = 20;
 constexpr int MAX_CHAT_MSG_LEN = 200;
 constexpr int MAX_BUF_SIZE = 1024;

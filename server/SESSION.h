@@ -39,6 +39,7 @@ public:
 	// Spawn / roam state (NPC only)
 	short mSpawnX, mSpawnY; // original spawn tile; roam stays within +/-10 tiles
 	bool  mIsDead;          // true while waiting for respawn timer
+	bool  mIsStationary;    // true for town NPCs that never move
 
 	// Party
 	int mPartyId;         // -1 = not in a party

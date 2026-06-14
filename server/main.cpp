@@ -36,13 +36,13 @@ void initNpcs()
 			int lv = npc->mLevel;
 			const char* npcName;
 			if (lv <= 30) {
-				npcName = "W.Goblin";
+				npcName = "Dog";
 			} else if (lv <= 60) {
-				npcName = "Goblin";
+				npcName = "Skeleton";
 			} else if (lv <= 80) {
-				npcName = "Gob.Paladin";
+				npcName = "Skel.Knight";
 			} else {
-				npcName = (rng() % 5 == 0) ? "Gob.Shaman" : "Gob.Paladin";
+				npcName = (rng() % 5 == 0) ? "Skel.Mage" : "Skel.Knight";
 			}
 			sprintf_s(npc->mUsername, MAX_NAME_LEN, "%s", npcName);
 		}

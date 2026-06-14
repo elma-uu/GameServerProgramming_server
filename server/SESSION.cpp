@@ -757,11 +757,20 @@ void SESSION::sendAddNpc(int npc_id)
 	npc->m_visible_players.insert(mId);
 	npc->m_visible_mutex.unlock();
 
+	// Map NPC name → monster visual_id (must match client MON_* enum)
+	// 0=Dog  1=Skeleton(Small)  2=Skel.Knight(Big_Normal)  3=Skel.Mage(Magician_Ice)
+	int monVisual = 0;
+	const char* nm = npc->mUsername;
+	if (strcmp(nm, "Dog") == 0)          monVisual = 0;
+	else if (strcmp(nm, "Skeleton") == 0)    monVisual = 1;
+	else if (strcmp(nm, "Skel.Knight") == 0) monVisual = 2;
+	else if (strcmp(nm, "Skel.Mage") == 0)   monVisual = 3;
+
 	S2C_AddObject packet;
 	packet.size = sizeof(S2C_AddObject);
 	packet.type = S2C_ADD_OBJECT;
 	packet.object_id = npc_id;
-	packet.visual_id = 1;
+	packet.visual_id = monVisual;
 	memcpy(packet.obj_name, npc->mUsername, MAX_NAME_LEN);
 	packet.x = npc->mX;
 	packet.y = npc->mY;

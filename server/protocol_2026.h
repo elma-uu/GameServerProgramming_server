@@ -46,6 +46,8 @@ enum PACKET_TYPE {
 
 	S2C_PARTY_LIST,		//	Server to Client: list of all parties
 	S2C_PARTY_UPDATE,	//	Server to Client: current party membership/state
+
+	C2S_CHAR_SELECT,	//	Client to Server: choose character visual (sent before entering world)
 };
 
 enum STAT_TYPE : unsigned char {
@@ -239,6 +241,12 @@ struct C2S_PartyLeave {
 struct C2S_PartyListReq {
 	unsigned char size;
 	PACKET_TYPE   type;
+};
+
+struct C2S_CharSelect {
+	unsigned char size;
+	PACKET_TYPE   type;
+	unsigned char visual_id; // 0=base 1=alice 2=metalPlate 3=pickax 4=redLotus
 };
 
 #pragma pack(pop) // Restore default packing

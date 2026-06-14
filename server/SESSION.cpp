@@ -47,6 +47,7 @@ SESSION::SESSION(SOCKET s, int id)
 	mHp = 100; mMaxHp = 100; mExp = 0; mLevel = 1;
 	mStr = 5; mIntl = 5; mDex = 5; mLuk = 5; mStatPoints = 0;
 	mPartyId = -1;
+	mVisualId = 0;
 }
 
 SESSION::SESSION(int id, bool isPlayer)
@@ -64,6 +65,7 @@ SESSION::SESSION(int id, bool isPlayer)
 	mStr = 5; mIntl = 5; mDex = 5; mLuk = 5; mStatPoints = 0;
 	mTargetId = -1; mChaseRemaining = 0;
 	mPartyId = -1;
+	mVisualId = 0;
 }
 
 SESSION::~SESSION()
@@ -102,7 +104,7 @@ void SESSION::sendAvatarInfo()
 	packet.size = sizeof(S2C_AvatarInfo);
 	packet.type = S2C_AVATAR_INFO;
 	packet.playerId = mId;
-	packet.visualId = 0;
+	packet.visualId = mVisualId;
 	packet.x = mX;
 	packet.y = mY;
 	packet.exp = mExp;
@@ -136,6 +138,7 @@ void SESSION::sendAddPlayer(int player_id)
 	packet.visual_id = 0;
 	std::shared_ptr<SESSION> pl = clients[player_id];
 	if (nullptr == pl) return;
+	packet.visual_id = pl->mVisualId;
 	memcpy(packet.obj_name, pl->mUsername, sizeof(packet.obj_name));
 	packet.x = pl->mX;
 	packet.y = pl->mY;
@@ -236,36 +239,40 @@ bool SESSION::processPacket(unsigned char* p)
 			result.result = LOGIN_SUCCESS;
 			strncpy_s(result.message, "Welcome back!", sizeof(result.message));
 		}
+		mVisualId = saveData.visual_id;
+
 		doSend(result.size, reinterpret_cast<char*>(&result));
 
 		std::cout << "Player[" << mId << "] logged in as " << mUsername << std::endl;
 
-		// Initialize sector
-		int initial_sector_id = get_sector_id(mX, mY);
-		sectors[initial_sector_id].insert(mId);
-		mSector_id = initial_sector_id;
-
-		sendAvatarInfo();
-		mState = CS_PLAYING;
-
-		// Notify visible players
-		std::unordered_set<int> new_v_players;
-		get_visible_players_from_sectors(new_v_players);
-		for (int id : new_v_players)
-		{
-			sendAddPlayer(id);
-			std::shared_ptr<SESSION> pl = clients[id];
-			if (nullptr == pl) continue;
-			pl->sendAddPlayer(mId);
+		if (dbRes == DBR_NEW_USER) {
+			// New account — wait for the client to pick a character
+			mState = CS_CHAR_SELECT;
+		} else {
+			// Existing user — enter the world immediately with saved visual_id
+			enterWorld();
 		}
+	}
+	break;
+	case C2S_CHAR_SELECT:
+	{
+		if (mState != CS_CHAR_SELECT) break;
+		C2S_CharSelect* pkt = reinterpret_cast<C2S_CharSelect*>(p);
+		mVisualId = pkt->visual_id;
+		std::cout << "Player[" << mId << "] chose visual " << (int)mVisualId << std::endl;
 
-		// Send nearby NPCs
-		{
-			std::unordered_set<int> visible_npcs;
-			get_visible_npcs_from_sectors(visible_npcs);
-			for (int npc_id : visible_npcs)
-				sendAddNpc(npc_id);
-		}
+		// Persist the choice immediately
+		PlayerSaveData sd = {};
+		strncpy_s(sd.username, mUsername, MAX_NAME_LEN);
+		sd.x = mX; sd.y = mY;
+		sd.hp = mHp; sd.max_hp = mMaxHp;
+		sd.exp = mExp; sd.level = mLevel;
+		sd.str = mStr; sd.intl = mIntl; sd.dex = mDex; sd.luk = mLuk;
+		sd.stat_points = mStatPoints;
+		sd.visual_id = mVisualId;
+		Database::SavePlayer(sd);
+
+		enterWorld();
 	}
 	break;
 	case C2S_MOVE:
@@ -980,4 +987,28 @@ void SESSION::givePartyExp(unsigned long long kill_exp)
 		}
 		member->sendAvatarInfo();
 	}
+}
+
+void SESSION::enterWorld()
+{
+	int initial_sector_id = get_sector_id(mX, mY);
+	sectors[initial_sector_id].insert(mId);
+	mSector_id = initial_sector_id;
+
+	sendAvatarInfo();
+	mState = CS_PLAYING;
+
+	std::unordered_set<int> new_v_players;
+	get_visible_players_from_sectors(new_v_players);
+	for (int id : new_v_players) {
+		sendAddPlayer(id);
+		std::shared_ptr<SESSION> pl = clients[id];
+		if (nullptr == pl) continue;
+		pl->sendAddPlayer(mId);
+	}
+
+	std::unordered_set<int> visible_npcs;
+	get_visible_npcs_from_sectors(visible_npcs);
+	for (int npc_id : visible_npcs)
+		sendAddNpc(npc_id);
 }

@@ -3,8 +3,9 @@
 #include "EXP_OVER.h"
 #include "pch.h"
 #include "PartyManager.h"
+#include "Database.h"
 
-enum CL_STATE { CS_CONNECT, CS_PLAYING, CS_LOGOUT };
+enum CL_STATE { CS_CONNECT, CS_CHAR_SELECT, CS_PLAYING, CS_LOGOUT };
 
 class SESSION {
 public:
@@ -38,6 +39,9 @@ public:
 	// Party
 	int mPartyId;         // -1 = not in a party
 
+	// Visual
+	int mVisualId;        // 0=base 1=alice 2=metalPlate 3=pickax 4=redLotus
+
 public:
 
 	SESSION();
@@ -64,6 +68,9 @@ public:
 	void sendPartyList();
 	void givePartyExp(unsigned long long kill_exp);
 
+	// called after character is selected to join the world
+	void enterWorld();
+
 
 	// sector
 	bool is_visible(short x, short y);
@@ -85,6 +92,20 @@ inline void disconnect(int key)
 	std::shared_ptr<SESSION> cla = clients[key];
 	if (nullptr != cla)
 	{
+		// Save player data (including visual_id) before cleanup
+		if (cla->is_player && cla->mState == CS_PLAYING && cla->mUsername[0] != '\0') {
+			PlayerSaveData sd = {};
+			strncpy_s(sd.username, cla->mUsername, MAX_NAME_LEN);
+			sd.x = cla->mX; sd.y = cla->mY;
+			sd.hp = cla->mHp; sd.max_hp = cla->mMaxHp;
+			sd.exp = cla->mExp; sd.level = cla->mLevel;
+			sd.str = cla->mStr; sd.intl = cla->mIntl;
+			sd.dex = cla->mDex; sd.luk = cla->mLuk;
+			sd.stat_points = cla->mStatPoints;
+			sd.visual_id = cla->mVisualId;
+			Database::SavePlayer(sd);
+		}
+
 		cla->mState = CS_LOGOUT;
 		sectors[cla->mSector_id].erase(key);
 
@@ -95,13 +116,26 @@ inline void disconnect(int key)
 			cla->mPartyId = -1;
 			broadcastPartyUpdate(partyId);
 		}
+
+		// Build REMOVE packet once
+		S2C_RemoveObject removePacket;
+		removePacket.size = sizeof(S2C_RemoveObject);
+		removePacket.type = S2C_REMOVE_OBJECT;
+		removePacket.object_id = key;
+
+		// Notify all players that had this player visible
+		// Use direct send (bypass sendRemovePlayer's set-check) to prevent ghost
 		auto visible_copy = cla->m_visible_players;
 		for (auto& other : visible_copy)
 		{
 			std::shared_ptr<SESSION> o = clients[other];
-			if (nullptr == o) continue;
-			if (o->mState == CS_PLAYING)
-				o->sendRemovePlayer(key);
+			if (nullptr == o || o->mState != CS_PLAYING) continue;
+			// Remove from their visible set
+			o->m_visible_mutex.lock();
+			o->m_visible_players.erase(key);
+			o->m_visible_mutex.unlock();
+			// Send REMOVE unconditionally
+			o->doSend(removePacket.size, reinterpret_cast<char*>(&removePacket));
 		}
 		if (cla->mClient != INVALID_SOCKET)
 			closesocket(cla->mClient);

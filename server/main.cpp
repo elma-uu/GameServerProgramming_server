@@ -88,14 +88,15 @@ void db_save_thread()
 			if (!session || !session->is_player) continue;
 			if (session->mState != CS_PLAYING) continue;
 
-			PlayerSaveData data;
+			PlayerSaveData data = {};
 			strncpy_s(data.username, session->mUsername, 20);
-			data.x  = session->mX;   data.y       = session->mY;
-			data.hp = session->mHp;  data.max_hp  = session->mMaxHp;
-			data.exp = session->mExp; data.level   = session->mLevel;
-			data.str = session->mStr; data.intl    = session->mIntl;
-			data.dex = session->mDex; data.luk     = session->mLuk;
+			data.x  = session->mX;   data.y        = session->mY;
+			data.hp = session->mHp;  data.max_hp   = session->mMaxHp;
+			data.exp = session->mExp; data.level    = session->mLevel;
+			data.str = session->mStr; data.intl     = session->mIntl;
+			data.dex = session->mDex; data.luk      = session->mLuk;
 			data.stat_points = session->mStatPoints;
+			data.visual_id   = session->mVisualId;
 
 			if (Database::SavePlayer(data)) ++saved;
 		}

@@ -36,6 +36,18 @@ bool Database::Connect()
 
     g_connected = true;
     printf("[DB] Connected via DSN=2026_GS_PROJECT.\n");
+
+    // Ensure visual_id column exists (safe to run repeatedly)
+    {
+        SQLHSTMT hS = SQL_NULL_HSTMT;
+        SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hS);
+        SQLExecDirectA(hS,
+            (SQLCHAR*)"IF COL_LENGTH('Users','visual_id') IS NULL "
+                      "ALTER TABLE Users ADD visual_id TINYINT NOT NULL DEFAULT 0",
+            SQL_NTS);
+        SQLFreeHandle(SQL_HANDLE_STMT, hS);
+    }
+
     return true;
 }
 
@@ -61,7 +73,7 @@ DbLoginResult Database::Login(const char* username, const char* password,
 
     SQLRETURN ret = SQLPrepareA(hStmt,
         (SQLCHAR*)"SELECT password, x, y, hp, max_hp, exp, level, "
-                  "str_stat, int_stat, dex_stat, luk_stat, stat_pts "
+                  "str_stat, int_stat, dex_stat, luk_stat, stat_pts, visual_id "
                   "FROM Users WHERE username = ?",
         SQL_NTS);
 
@@ -83,15 +95,35 @@ DbLoginResult Database::Login(const char* username, const char* password,
         SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
         SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt);
 
+        // Insert with all columns so NOT NULL constraints are never violated
+        short defX = 1000, defY = 1000;
+        int defHp = 100, defMaxHp = 100;
+        unsigned long long defExp = 0;
+        unsigned char defLv = 1, defSt = 5, defVid = 0;
+        SQLLEN ind = 0;
+
         SQLPrepareA(hStmt,
-            (SQLCHAR*)"INSERT INTO Users (username, password) VALUES (?, ?)",
+            (SQLCHAR*)"INSERT INTO Users "
+                      "(username, password, x, y, hp, max_hp, exp, level, "
+                      " str_stat, int_stat, dex_stat, luk_stat, stat_pts, visual_id) "
+                      "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             SQL_NTS);
 
         SQLLEN len1 = SQL_NTS, len2 = SQL_NTS;
-        SQLBindParameter(hStmt, 1, SQL_PARAM_INPUT,
-            SQL_C_CHAR, SQL_VARCHAR, 20, 0, (SQLPOINTER)username, 0, &len1);
-        SQLBindParameter(hStmt, 2, SQL_PARAM_INPUT,
-            SQL_C_CHAR, SQL_VARCHAR, 20, 0, (SQLPOINTER)password, 0, &len2);
+        SQLBindParameter(hStmt, 1,  SQL_PARAM_INPUT, SQL_C_CHAR,     SQL_VARCHAR,  20, 0, (SQLPOINTER)username, 0, &len1);
+        SQLBindParameter(hStmt, 2,  SQL_PARAM_INPUT, SQL_C_CHAR,     SQL_VARCHAR,  20, 0, (SQLPOINTER)password, 0, &len2);
+        SQLBindParameter(hStmt, 3,  SQL_PARAM_INPUT, SQL_C_SSHORT,   SQL_SMALLINT,  5, 0, &defX,      0, &ind);
+        SQLBindParameter(hStmt, 4,  SQL_PARAM_INPUT, SQL_C_SSHORT,   SQL_SMALLINT,  5, 0, &defY,      0, &ind);
+        SQLBindParameter(hStmt, 5,  SQL_PARAM_INPUT, SQL_C_LONG,     SQL_INTEGER,  10, 0, &defHp,     0, &ind);
+        SQLBindParameter(hStmt, 6,  SQL_PARAM_INPUT, SQL_C_LONG,     SQL_INTEGER,  10, 0, &defMaxHp,  0, &ind);
+        SQLBindParameter(hStmt, 7,  SQL_PARAM_INPUT, SQL_C_UBIGINT,  SQL_BIGINT,   19, 0, &defExp,    0, &ind);
+        SQLBindParameter(hStmt, 8,  SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,   3, 0, &defLv,     0, &ind);
+        SQLBindParameter(hStmt, 9,  SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,   3, 0, &defSt,     0, &ind);
+        SQLBindParameter(hStmt, 10, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,   3, 0, &defSt,     0, &ind);
+        SQLBindParameter(hStmt, 11, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,   3, 0, &defSt,     0, &ind);
+        SQLBindParameter(hStmt, 12, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,   3, 0, &defSt,     0, &ind);
+        SQLBindParameter(hStmt, 13, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,   3, 0, &defSt,     0, &ind);
+        SQLBindParameter(hStmt, 14, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,   3, 0, &defVid,    0, &ind);
 
         SQLRETURN insRet = SQLExecute(hStmt);
         SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
@@ -106,6 +138,7 @@ DbLoginResult Database::Login(const char* username, const char* password,
         out.exp = 0; out.level = 1;
         out.str = out.intl = out.dex = out.luk = 5;
         out.stat_points = 0;
+        out.visual_id = 0xFF;   // sentinel: char not selected yet
 
         printf("[DB] Registered new user: %s\n", username);
         return DBR_NEW_USER;
@@ -123,7 +156,7 @@ DbLoginResult Database::Login(const char* username, const char* password,
     short x = 1000, y = 1000;
     int hp = 100, max_hp = 100;
     unsigned long long exp = 0;
-    unsigned char level = 1, str = 5, intl = 5, dex = 5, luk = 5, sp = 0;
+    unsigned char level = 1, str = 5, intl = 5, dex = 5, luk = 5, sp = 0, vid = 0;
 
     SQLGetData(hStmt, 2,  SQL_C_SSHORT,   &x,      0, &colLen);
     SQLGetData(hStmt, 3,  SQL_C_SSHORT,   &y,      0, &colLen);
@@ -136,6 +169,7 @@ DbLoginResult Database::Login(const char* username, const char* password,
     SQLGetData(hStmt, 10, SQL_C_UTINYINT, &dex,    0, &colLen);
     SQLGetData(hStmt, 11, SQL_C_UTINYINT, &luk,    0, &colLen);
     SQLGetData(hStmt, 12, SQL_C_UTINYINT, &sp,     0, &colLen);
+    SQLGetData(hStmt, 13, SQL_C_UTINYINT, &vid,    0, &colLen);
 
     SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
 
@@ -145,6 +179,7 @@ DbLoginResult Database::Login(const char* username, const char* password,
     out.exp = exp; out.level = level;
     out.str = str; out.intl = intl; out.dex = dex; out.luk = luk;
     out.stat_points = sp;
+    out.visual_id   = vid;
 
     printf("[DB] Login OK: %s\n", username);
     return DBR_OK;
@@ -160,7 +195,7 @@ bool Database::SavePlayer(const PlayerSaveData& data)
 
     SQLPrepareA(hStmt,
         (SQLCHAR*)"UPDATE Users SET x=?, y=?, hp=?, max_hp=?, exp=?, level=?, "
-                  "str_stat=?, int_stat=?, dex_stat=?, luk_stat=?, stat_pts=? "
+                  "str_stat=?, int_stat=?, dex_stat=?, luk_stat=?, stat_pts=?, visual_id=? "
                   "WHERE username=?",
         SQL_NTS);
 
@@ -168,7 +203,8 @@ bool Database::SavePlayer(const PlayerSaveData& data)
     int hp = data.hp, max_hp = data.max_hp;
     unsigned long long exp = data.exp;
     unsigned char lv = data.level, st = data.str, it = data.intl,
-                  dx = data.dex,   lk = data.luk,  sp = data.stat_points;
+                  dx = data.dex,   lk = data.luk,  sp = data.stat_points,
+                  vid = data.visual_id;
 
     SQLLEN ind = 0, nameInd = SQL_NTS;
     SQLBindParameter(hStmt, 1,  SQL_PARAM_INPUT, SQL_C_SSHORT,   SQL_SMALLINT, 5,  0, &x,      0, &ind);
@@ -182,7 +218,8 @@ bool Database::SavePlayer(const PlayerSaveData& data)
     SQLBindParameter(hStmt, 9,  SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,  3,  0, &dx,     0, &ind);
     SQLBindParameter(hStmt, 10, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,  3,  0, &lk,     0, &ind);
     SQLBindParameter(hStmt, 11, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,  3,  0, &sp,     0, &ind);
-    SQLBindParameter(hStmt, 12, SQL_PARAM_INPUT, SQL_C_CHAR,     SQL_VARCHAR,  20, 0,
+    SQLBindParameter(hStmt, 12, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,  3,  0, &vid,    0, &ind);
+    SQLBindParameter(hStmt, 13, SQL_PARAM_INPUT, SQL_C_CHAR,     SQL_VARCHAR,  20, 0,
         (SQLPOINTER)data.username, 0, &nameInd);
 
     SQLRETURN ret = SQLExecute(hStmt);

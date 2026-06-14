@@ -40,8 +40,6 @@ SESSION::SESSION(SOCKET s, int id)
 	mState = CS_CONNECT;
 	mX = 1000;
 	mY = 1000;
-	mPixelX = 1000 * 50 + 25;
-	mPixelY = 1000 * 50 + 25;
 	mMove_time = 0;
 	mSector_id = 0;
 	mDirection = DOWN;
@@ -59,8 +57,6 @@ SESSION::SESSION(int id, bool isPlayer)
 	mState = CS_CONNECT;
 	mX = 1000;
 	mY = 1000;
-	mPixelX = 1000 * 50 + 25;
-	mPixelY = 1000 * 50 + 25;
 	mMove_time = 0;
 	mSector_id = 0;
 	mDirection = DOWN;
@@ -188,8 +184,8 @@ void SESSION::sendMovePacket(int mover)
 	packet.object_id = mover;
 	std::shared_ptr<SESSION> pl = clients[mover];
 	if (nullptr == pl) return;
-	packet.x = pl->mPixelX;
-	packet.y = pl->mPixelY;
+	packet.x = pl->mX;
+	packet.y = pl->mY;
 	packet.move_time = pl->mMove_time;
 	doSend(packet.size, reinterpret_cast<char*>(&packet));
 }
@@ -231,7 +227,6 @@ bool SESSION::processPacket(unsigned char* p)
 		// Load data from DB into session
 		strncpy_s(mUsername, saveData.username, MAX_NAME_LEN);
 		mX = saveData.x; mY = saveData.y;
-		mPixelX = mX * 50 + 25; mPixelY = mY * 50 + 25;
 		mHp = saveData.hp; mMaxHp = saveData.max_hp;
 		mExp = saveData.exp; mLevel = saveData.level;
 		mStr = saveData.str; mIntl = saveData.intl;
@@ -284,13 +279,10 @@ bool SESSION::processPacket(unsigned char* p)
 	case C2S_MOVE:
 	{
 		C2S_Move* packet = reinterpret_cast<C2S_Move*>(p);
-		mPixelX = packet->x;
-		mPixelY = packet->y;
+		mX = packet->x;
+		mY = packet->y;
 		mMove_time = packet->move_time;
 		mDirection = packet->dir;
-		// derive tile from pixel for game logic (collision, sectors, etc.)
-		mX = static_cast<short>(mPixelX / 50);
-		mY = static_cast<short>(mPixelY / 50);
 
 		auto old_v_players = m_visible_players;
 
@@ -410,10 +402,10 @@ bool SESSION::processPacket(unsigned char* p)
 		// No PvP: only NPCs can be attacked
 		if (target->is_player) break;
 
-		// Damage: STR * 100, crit = LUK% chance -> x2
-		int damage = static_cast<int>(mStr) * 100;
+		// Damage: 10 + STR*3, crit = LUK% chance -> x1.5
+		int damage = 10 + static_cast<int>(mStr) * 3;
 		bool is_crit = (rand() % 100) < static_cast<int>(mLuk);
-		if (is_crit) damage *= 2;
+		if (is_crit) damage = damage * 3 / 2;
 
 		target->mHp -= damage;
 
@@ -478,7 +470,7 @@ bool SESSION::processPacket(unsigned char* p)
 			mExp += kill_exp;
 			// Level-up threshold: lv1=100, each level +20
 			while (mLevel < 100) {
-				unsigned long long required = 100ULL + static_cast<unsigned long long>(mLevel - 1) * 20ULL;
+				unsigned long long required = static_cast<unsigned long long>(mLevel) * mLevel * 20ULL;
 				if (mExp < required) break;
 				mExp -= required;
 				mLevel++;
@@ -557,9 +549,9 @@ bool SESSION::processPacket(unsigned char* p)
 			// No PvP
 			if (target->is_player) continue;
 
-			int damage = static_cast<int>(mStr) * 150;
+			int damage = 15 + static_cast<int>(mStr) * 4;
 			bool is_crit = (rand() % 100) < static_cast<int>(mLuk);
-			if (is_crit) damage *= 2;
+			if (is_crit) damage = damage * 3 / 2;
 
 			target->mHp -= damage;
 			if (target->mHp <= 0 && target->is_player) target->mHp = 1;
@@ -614,7 +606,7 @@ bool SESSION::processPacket(unsigned char* p)
 				mExp += kill_exp;
 				// Level-up threshold: lv1=100, each level +20
 				while (mLevel < 100) {
-					unsigned long long required = 100ULL + static_cast<unsigned long long>(mLevel - 1) * 20ULL;
+					unsigned long long required = static_cast<unsigned long long>(mLevel) * mLevel * 20ULL;
 					if (mExp < required) break;
 					mExp -= required;
 					mLevel++;
@@ -940,8 +932,8 @@ void SESSION::doNpcMove()
 	mp.size = sizeof(S2C_MoveObject);
 	mp.type = S2C_MOVE_OBJECT;
 	mp.object_id = mId;
-	mp.x = mX * 50 + 25;
-	mp.y = mY * 50 + 25;
+	mp.x = mX;
+	mp.y = mY;
 	mp.move_time = NPC_MOVE_INTERVAL;
 
 	m_visible_mutex.lock();
@@ -1061,7 +1053,7 @@ void SESSION::givePartyExp(unsigned long long kill_exp)
 
 		member->mExp += bonus;
 		while (member->mLevel < 100) {
-			unsigned long long req = 100ULL + static_cast<unsigned long long>(member->mLevel - 1) * 20ULL;
+			unsigned long long req = static_cast<unsigned long long>(member->mLevel) * member->mLevel * 20ULL;
 			if (member->mExp < req) break;
 			member->mExp -= req;
 			member->mLevel++;

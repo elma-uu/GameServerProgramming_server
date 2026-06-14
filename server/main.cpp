@@ -26,8 +26,10 @@ void initNpcs()
 			if (level > 100) level = 100;
 			npc->mLevel = static_cast<unsigned char>(level);
 		}
-		npc->mHp = 50;
-		npc->mMaxHp = 50;
+		// HP scales with level: lv1=20, lv10=200, lv50=1000, lv100=2000
+		int npcHp = npc->mLevel * 20;
+		npc->mHp = npcHp;
+		npc->mMaxHp = npcHp;
 
 		// Assign monster name by level tier
 		// lv 1-30: W.Goblin  / lv 31-60: Goblin
@@ -84,7 +86,7 @@ void npc_timer_thread()
 void respawn_timer_thread()
 {
 	while (true) {
-		std::this_thread::sleep_for(std::chrono::seconds(20));
+		std::this_thread::sleep_for(std::chrono::seconds(60));
 
 		int revived = 0;
 		for (int i = 0; i < NUM_NPCS; ++i) {

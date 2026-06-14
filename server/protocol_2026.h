@@ -79,9 +79,9 @@ struct C2S_Move {
 	unsigned char size;
 	PACKET_TYPE   type;
 	DIRECTION dir;
-	int x;   // pixel coordinate
-	int y;   // pixel coordinate
-	int move_time; // in milliseconds
+	short x;  // tile coordinate
+	short y;  // tile coordinate
+	int move_time;
 };
 
 struct C2S_Chat {
@@ -158,9 +158,9 @@ struct S2C_MoveObject {
 	unsigned char size;
 	PACKET_TYPE   type;
 	int object_id;
-	int x;   // pixel coordinate
-	int y;   // pixel coordinate
-	int move_time; // in milliseconds
+	short x;  // tile coordinate
+	short y;  // tile coordinate
+	int move_time;
 };
 
 struct S2C_ChatMessage {

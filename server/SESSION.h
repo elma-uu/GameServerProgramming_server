@@ -14,8 +14,7 @@ public:
 	CL_STATE mState;
 	RingBuffer mRecvBuffer;
 	char mUsername[MAX_NAME_LEN];
-	short mX, mY;      // tile coordinates for game logic
-	int mPixelX, mPixelY; // pixel coordinates for sync broadcasts
+	short mX, mY;      // tile coordinates
 	int mMove_time;
 	int mSector_id;
 	DIRECTION mDirection;

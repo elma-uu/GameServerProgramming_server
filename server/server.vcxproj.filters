@@ -22,6 +22,9 @@
     <Filter Include="DB">
       <UniqueIdentifier>{8c6d1db0-aeec-43c5-ab38-bcbef015626e}</UniqueIdentifier>
     </Filter>
+    <Filter Include="LUA">
+      <UniqueIdentifier>{af70fa11-1cba-42c2-9d9f-625ec6fbb515}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -35,6 +38,9 @@
     </ClCompile>
     <ClCompile Include="Database.cpp">
       <Filter>DB</Filter>
+    </ClCompile>
+    <ClCompile Include="LuaManager.cpp">
+      <Filter>LUA</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -56,8 +62,14 @@
     <ClInclude Include="Database.h">
       <Filter>DB</Filter>
     </ClInclude>
+    <ClInclude Include="LuaManager.h">
+      <Filter>LUA</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+    <None Include="npc_ai.lua">
+      <Filter>LUA</Filter>
+    </None>
   </ItemGroup>
 </Project>

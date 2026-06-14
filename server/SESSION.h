@@ -30,6 +30,10 @@ public:
 	std::mutex m_visible_mutex;
 	bool is_player;
 
+	// Chase state (NPC only)
+	int mTargetId;        // player ID being chased; -1 = wandering
+	int mChaseRemaining;  // move steps left before giving up chase
+
 public:
 
 	SESSION();

@@ -1,6 +1,7 @@
 #include "common.h"
 #include "SESSION.h"
 #include "Database.h"
+#include "LuaManager.h"
 
 // Global variable definitions
 tbb::concurrent_unordered_map<int, std::shared_ptr<SESSION>> clients;
@@ -59,6 +60,7 @@ SESSION::SESSION(int id, bool isPlayer)
 	is_player = isPlayer;
 	mHp = 100; mMaxHp = 100; mExp = 0; mLevel = 1;
 	mStr = 5; mIntl = 5; mDex = 5; mLuk = 5; mStatPoints = 0;
+	mTargetId = -1; mChaseRemaining = 0;
 }
 
 SESSION::~SESSION()
@@ -460,6 +462,12 @@ bool SESSION::processPacket(unsigned char* p)
 			// If target is a player, send to target itself too
 			if (target->is_player)
 				target->doSend(sc.size, reinterpret_cast<char*>(&sc));
+
+			// NPC hit but not killed: start chasing attacker
+			if (!target->is_player) {
+				target->mTargetId      = mId;
+				target->mChaseRemaining = 20;
+			}
 		}
 	}
 	break;
@@ -556,6 +564,12 @@ bool SESSION::processPacket(unsigned char* p)
 				}
 				if (target->is_player)
 					target->doSend(sc.size, reinterpret_cast<char*>(&sc));
+
+				// NPC hit but not killed: start chasing attacker
+				if (!target->is_player) {
+					target->mTargetId       = mId;
+					target->mChaseRemaining = 20;
+				}
 			}
 		}
 
@@ -728,14 +742,47 @@ void SESSION::doNpcMove()
 	thread_local std::mt19937 rng(std::random_device{}());
 	thread_local std::uniform_int_distribution<int> dir_dist(0, 3);
 
-	int dir = dir_dist(rng);
 	short newX = mX, newY = mY;
-	switch (dir) {
-	case 0: if (newY > 0)              newY--; break;
-	case 1: if (newY < WORLD_HEIGHT-1) newY++; break;
-	case 2: if (newX > 0)              newX--; break;
-	case 3: if (newX < WORLD_WIDTH-1)  newX++; break;
+
+	if (mTargetId >= 0) {
+		// Chase mode: use Lua A*
+		auto it = clients.find(mTargetId);
+		bool valid = (it != clients.end() && it->second && it->second->mState == CS_PLAYING);
+		if (!valid) {
+			// Target disconnected - back to wander
+			mTargetId = -1;
+			mChaseRemaining = 0;
+		} else {
+			auto tgt = it->second;
+			short dx = 0, dy = 0;
+			if (LuaManager::GetNextStep(mX, mY, tgt->mX, tgt->mY, dx, dy)) {
+				newX = mX + dx;
+				newY = mY + dy;
+			}
+			if (--mChaseRemaining <= 0) {
+				mTargetId = -1;  // Give up chase
+				mChaseRemaining = 0;
+			}
+		}
 	}
+
+	if (mTargetId < 0) {
+		// Wander mode: random direction
+		int dir = dir_dist(rng);
+		newX = mX; newY = mY;
+		switch (dir) {
+		case 0: if (newY > 0)              newY--; break;
+		case 1: if (newY < WORLD_HEIGHT-1) newY++; break;
+		case 2: if (newX > 0)              newX--; break;
+		case 3: if (newX < WORLD_WIDTH-1)  newX++; break;
+		}
+	}
+
+	// Clamp to world bounds
+	if (newX < 0) newX = 0;
+	if (newX >= WORLD_WIDTH)  newX = WORLD_WIDTH  - 1;
+	if (newY < 0) newY = 0;
+	if (newY >= WORLD_HEIGHT) newY = WORLD_HEIGHT - 1;
 
 	if (newX == mX && newY == mY) return;
 	mX = newX;

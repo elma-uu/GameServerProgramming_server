@@ -1,7 +1,8 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "SESSION.h"
 #include "EXP_OVER.h"
 #include "Database.h"
+#include "LuaManager.h"
 
 void initNpcs()
 {
@@ -35,13 +36,13 @@ void initNpcs()
 			int lv = npc->mLevel;
 			const char* npcName;
 			if (lv <= 30) {
-				npcName = "¶°µ¹ÀÌ °íºí¸°";
+				npcName = "W.Goblin";
 			} else if (lv <= 60) {
-				npcName = "°íºí¸°";
+				npcName = "Goblin";
 			} else if (lv <= 80) {
-				npcName = "°íºí¸° ÆÈ¶óµò";
+				npcName = "Gob.Paladin";
 			} else {
-				npcName = (rng() % 5 == 0) ? "°íºí¸° »þ¸Õ" : "°íºí¸° ÆÈ¶óµò";
+				npcName = (rng() % 5 == 0) ? "Gob.Shaman" : "Gob.Paladin";
 			}
 			sprintf_s(npc->mUsername, MAX_NAME_LEN, "%s", npcName);
 		}
@@ -272,6 +273,11 @@ int main()
 		closesocket(g_server);
 		WSACleanup();
 		return 1;
+	}
+
+	// Load Lua AI script
+	if (!LuaManager::Init("npc_ai.lua")) {
+		std::cout << "Warning: Lua AI unavailable, NPCs will only wander.\n";
 	}
 
 	// Initialize NPCs before accepting players

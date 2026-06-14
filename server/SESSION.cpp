@@ -48,6 +48,7 @@ SESSION::SESSION(SOCKET s, int id)
 	mStr = 5; mIntl = 5; mDex = 5; mLuk = 5; mStatPoints = 0;
 	mPartyId = -1;
 	mVisualId = 0;
+	mGold = 0;
 }
 
 SESSION::SESSION(int id, bool isPlayer)
@@ -67,6 +68,7 @@ SESSION::SESSION(int id, bool isPlayer)
 	mSpawnX = 1000; mSpawnY = 1000; mIsDead = false; mIsStationary = false;
 	mPartyId = -1;
 	mVisualId = 0;
+	mGold = 0;
 }
 
 SESSION::~SESSION()
@@ -232,6 +234,7 @@ bool SESSION::processPacket(unsigned char* p)
 		mStr = saveData.str; mIntl = saveData.intl;
 		mDex = saveData.dex; mLuk = saveData.luk;
 		mStatPoints = saveData.stat_points;
+		mGold = saveData.gold;
 
 		if (dbRes == DBR_NEW_USER) {
 			result.result = LOGIN_NEW_USER;
@@ -271,6 +274,7 @@ bool SESSION::processPacket(unsigned char* p)
 		sd.str = mStr; sd.intl = mIntl; sd.dex = mDex; sd.luk = mLuk;
 		sd.stat_points = mStatPoints;
 		sd.visual_id = mVisualId;
+		sd.gold = mGold;
 		Database::SavePlayer(sd);
 
 		enterWorld();
@@ -476,6 +480,9 @@ bool SESSION::processPacket(unsigned char* p)
 				mLevel++;
 				mStatPoints += 5;
 			}
+			// Give gold: level * 10
+			mGold += static_cast<int>(target->mLevel) * 10;
+			sendGoldUpdate();
 			sendAvatarInfo();
 			givePartyExp(kill_exp);
 		} else {
@@ -549,7 +556,7 @@ bool SESSION::processPacket(unsigned char* p)
 			// No PvP
 			if (target->is_player) continue;
 
-			int damage = 15 + static_cast<int>(mStr) * 4;
+			int damage = 15 + static_cast<int>(mIntl) * 4;
 			bool is_crit = (rand() % 100) < static_cast<int>(mLuk);
 			if (is_crit) damage = damage * 3 / 2;
 
@@ -601,8 +608,8 @@ bool SESSION::processPacket(unsigned char* p)
 				}
 				target->mHp = target->mMaxHp;
 
-				// Give EXP: lv1=10, each level +5
-				unsigned long long kill_exp = static_cast<unsigned long long>(10 + (static_cast<int>(target->mLevel) - 1) * 5);
+				// Give EXP: level * level * 2
+				unsigned long long kill_exp = static_cast<unsigned long long>(target->mLevel) * target->mLevel * 2ULL;
 				mExp += kill_exp;
 				// Level-up threshold: lv1=100, each level +20
 				while (mLevel < 100) {
@@ -612,6 +619,8 @@ bool SESSION::processPacket(unsigned char* p)
 					mLevel++;
 					mStatPoints += 5;
 				}
+				// Give gold: level * 10
+				mGold += static_cast<int>(target->mLevel) * 10;
 				givePartyExp(kill_exp);
 				stat_changed = true;
 			} else {
@@ -645,7 +654,34 @@ bool SESSION::processPacket(unsigned char* p)
 			}
 		}
 
-		if (stat_changed) sendAvatarInfo();
+		if (stat_changed) { sendGoldUpdate(); sendAvatarInfo(); }
+	}
+	break;
+	case C2S_BUY_ITEM:
+	{
+		C2S_BuyItem* pkt = reinterpret_cast<C2S_BuyItem*>(p);
+		ITEM_TYPE item = pkt->item_type;
+
+		int price = (item == ITEM_HP_POTION) ? SHOP_POTION_PRICE : SHOP_TELEPORT_PRICE;
+		if (mGold < price) {
+			sendBuyResult(false, item, 0, 0, 0);
+			break;
+		}
+		mGold -= price;
+
+		if (item == ITEM_HP_POTION) {
+			int heal = max(50, mMaxHp / 3);
+			mHp = min(mMaxHp, mHp + heal);
+			sendBuyResult(true, item, mHp, 0, 0);
+		} else {
+			// Teleport to town center
+			sectors[mSector_id].erase(mId);
+			mX = 1000; mY = 1000;
+			mSector_id = get_sector_id(mX, mY);
+			sectors[mSector_id].insert(mId);
+			sendBuyResult(true, item, 0, mX, mY);
+		}
+		sendGoldUpdate();
 	}
 	break;
 	case C2S_CHAT:
@@ -815,20 +851,11 @@ void SESSION::sendAddNpc(int npc_id)
 	npc->m_visible_players.insert(mId);
 	npc->m_visible_mutex.unlock();
 
-	// Map NPC name to monster visual_id (must match client MON_* enum)
-	// 0=Dog  1=Skeleton(Small)  2=Skel.Knight(Big_Normal)  3=Skel.Mage(Magician_Ice)
-	int monVisual = 0;
-	const char* nm = npc->mUsername;
-	if (strcmp(nm, "Dog") == 0)          monVisual = 0;
-	else if (strcmp(nm, "Skeleton") == 0)    monVisual = 1;
-	else if (strcmp(nm, "Skel.Knight") == 0) monVisual = 2;
-	else if (strcmp(nm, "Skel.Mage") == 0)   monVisual = 3;
-
 	S2C_AddObject packet;
 	packet.size = sizeof(S2C_AddObject);
 	packet.type = S2C_ADD_OBJECT;
 	packet.object_id = npc_id;
-	packet.visual_id = monVisual;
+	packet.visual_id = npc->mVisualId;
 	memcpy(packet.obj_name, npc->mUsername, MAX_NAME_LEN);
 	packet.x = npc->mX;
 	packet.y = npc->mY;
@@ -882,14 +909,20 @@ void SESSION::doNpcMove()
 			mChaseRemaining = 0;
 		} else {
 			auto tgt = it->second;
-			short dx = 0, dy = 0;
-			if (LuaManager::GetNextStep(mX, mY, tgt->mX, tgt->mY, dx, dy)) {
-				newX = mX + dx;
-				newY = mY + dy;
-			}
-			if (--mChaseRemaining <= 0) {
-				mTargetId = -1;  // Give up chase
+			// Give up chase if target is inside the safe zone
+			if (is_in_safe_zone(tgt->mX, tgt->mY)) {
+				mTargetId = -1;
 				mChaseRemaining = 0;
+			} else {
+				short dx = 0, dy = 0;
+				if (LuaManager::GetNextStep(mX, mY, tgt->mX, tgt->mY, dx, dy)) {
+					newX = mX + dx;
+					newY = mY + dy;
+				}
+				if (--mChaseRemaining <= 0) {
+					mTargetId = -1;  // Give up chase
+					mChaseRemaining = 0;
+				}
 			}
 		}
 	}
@@ -916,6 +949,9 @@ void SESSION::doNpcMove()
 	if (newX >= WORLD_WIDTH)  newX = WORLD_WIDTH  - 1;
 	if (newY < 0) newY = 0;
 	if (newY >= WORLD_HEIGHT) newY = WORLD_HEIGHT - 1;
+
+	// Block entry into the town safe zone
+	if (is_in_safe_zone(newX, newY)) return;
 
 	if (newX == mX && newY == mY) return;
 	mX = newX;
@@ -1085,4 +1121,29 @@ void SESSION::enterWorld()
 	get_visible_npcs_from_sectors(visible_npcs);
 	for (int npc_id : visible_npcs)
 		sendAddNpc(npc_id);
+
+	sendGoldUpdate();
+}
+
+void SESSION::sendGoldUpdate()
+{
+	S2C_GoldUpdate pkt;
+	pkt.size = sizeof(S2C_GoldUpdate);
+	pkt.type = S2C_GOLD_UPDATE;
+	pkt.gold = mGold;
+	doSend(pkt.size, reinterpret_cast<char*>(&pkt));
+}
+
+void SESSION::sendBuyResult(bool success, ITEM_TYPE item, int newHp, short newX, short newY)
+{
+	S2C_BuyResult pkt;
+	pkt.size      = sizeof(S2C_BuyResult);
+	pkt.type      = S2C_BUY_RESULT;
+	pkt.success   = success ? 1 : 0;
+	pkt.item_type = item;
+	pkt.gold      = mGold;
+	pkt.new_hp    = newHp;
+	pkt.new_x     = newX;
+	pkt.new_y     = newY;
+	doSend(pkt.size, reinterpret_cast<char*>(&pkt));
 }

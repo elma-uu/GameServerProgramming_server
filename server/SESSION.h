@@ -47,6 +47,9 @@ public:
 	// Visual
 	int mVisualId;        // 0=base 1=alice 2=metalPlate 3=pickax 4=redLotus
 
+	// Economy
+	int mGold;
+
 public:
 
 	SESSION();
@@ -63,6 +66,8 @@ public:
 	void sendRemovePlayer(int player_id);
 	void sendMovePacket(int mover);
 	void sendStatInfo();
+	void sendGoldUpdate();
+	void sendBuyResult(bool success, ITEM_TYPE item, int newHp, short newX, short newY);
 	bool processPacket(unsigned char* p);
 
 	// call this whenever the player levels up to grant stat points
@@ -108,6 +113,7 @@ inline void disconnect(int key)
 			sd.dex = cla->mDex; sd.luk = cla->mLuk;
 			sd.stat_points = cla->mStatPoints;
 			sd.visual_id = cla->mVisualId;
+			sd.gold = cla->mGold;
 			Database::SavePlayer(sd);
 		}
 

@@ -12,6 +12,7 @@ struct PlayerSaveData {
     unsigned long long exp;
     unsigned char level, str, intl, dex, luk, stat_points;
     unsigned char visual_id;   // 0=base 1=alice 2=metalPlate 3=pickax 4=redLotus
+    int           gold;
 };
 
 // Use DBR_ prefix to avoid Windows SDK macro collisions

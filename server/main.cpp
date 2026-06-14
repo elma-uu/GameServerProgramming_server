@@ -13,8 +13,11 @@ void initNpcs()
 	for (int i = 0; i < NUM_NPCS; ++i) {
 		int npc_id = NPC_ID_START + i;
 		auto npc = std::make_shared<SESSION>(npc_id, false);
-		npc->mX = static_cast<short>(distX(rng));
-		npc->mY = static_cast<short>(distY(rng));
+		// Keep re-rolling until position is outside the town safe zone
+		do {
+			npc->mX = static_cast<short>(distX(rng));
+			npc->mY = static_cast<short>(distY(rng));
+		} while (is_in_safe_zone(npc->mX, npc->mY));
 		// Level scales with distance from center (1000, 1000): min 1, max 100
 		// Max possible distance: corner (0,0) or (2000,2000) -> sqrt(1000^2 + 1000^2) ~ 1414
 		{
@@ -37,16 +40,20 @@ void initNpcs()
 		{
 			int lv = npc->mLevel;
 			const char* npcName;
+			int visualId;
 			if (lv <= 30) {
-				npcName = "Dog";
+				npcName = "Dog";        visualId = 0;
 			} else if (lv <= 60) {
-				npcName = "Skeleton";
+				npcName = "Skeleton";   visualId = 1;
 			} else if (lv <= 80) {
-				npcName = "Skel.Knight";
+				npcName = "Skel.Knight"; visualId = 2;
 			} else {
-				npcName = (rng() % 5 == 0) ? "Skel.Mage" : "Skel.Knight";
+				bool isMage = (rng() % 5 == 0);
+				npcName  = isMage ? "Skel.Mage" : "Skel.Knight";
+				visualId = isMage ? 3 : 2;
 			}
 			sprintf_s(npc->mUsername, MAX_NAME_LEN, "%s", npcName);
+			npc->mVisualId = visualId;
 		}
 
 		npc->mSpawnX = npc->mX;

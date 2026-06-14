@@ -56,6 +56,10 @@ enum PACKET_TYPE {
 	C2S_CHAR_SELECT,	//	Client to Server: choose character visual (sent before entering world)
 
 	S2C_DAMAGE_NUMBER,	//	Server to Client: show floating damage number near an object
+
+	C2S_BUY_ITEM,		//	Client to Server: buy item from shop NPC
+	S2C_BUY_RESULT,		//	Server to Client: purchase result (success, gold, effect)
+	S2C_GOLD_UPDATE,	//	Server to Client: gold balance changed (kill reward etc.)
 };
 
 enum STAT_TYPE : unsigned char {
@@ -64,6 +68,13 @@ enum STAT_TYPE : unsigned char {
 	STAT_DEX = 2,
 	STAT_LUK = 3,
 };
+
+enum ITEM_TYPE : unsigned char {
+	ITEM_HP_POTION       = 0,
+	ITEM_TELEPORT_SCROLL = 1,
+};
+constexpr int SHOP_POTION_PRICE   = 200;
+constexpr int SHOP_TELEPORT_PRICE = 500;
 
 // Login result codes
 enum LOGIN_RESULT : unsigned char {
@@ -266,6 +277,29 @@ struct S2C_DamageNumber {
 	int           object_id;   // target (monster)
 	int           damage;
 	unsigned char is_crit;
+};
+
+struct C2S_BuyItem {
+	unsigned char size;
+	PACKET_TYPE   type;
+	ITEM_TYPE     item_type;
+};
+
+struct S2C_BuyResult {
+	unsigned char  size;
+	PACKET_TYPE    type;
+	unsigned char  success;    // 1=bought, 0=not enough gold
+	ITEM_TYPE      item_type;
+	int            gold;       // updated gold balance
+	int            new_hp;     // new HP after potion (0 if scroll)
+	short          new_x;      // new tile X after scroll (0 if potion)
+	short          new_y;      // new tile Y after scroll (0 if potion)
+};
+
+struct S2C_GoldUpdate {
+	unsigned char size;
+	PACKET_TYPE   type;
+	int           gold;
 };
 
 #pragma pack(pop) // Restore default packing

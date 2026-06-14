@@ -47,6 +47,16 @@ bool Database::Connect()
             SQL_NTS);
         SQLFreeHandle(SQL_HANDLE_STMT, hS);
     }
+    // Ensure gold column exists
+    {
+        SQLHSTMT hS = SQL_NULL_HSTMT;
+        SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hS);
+        SQLExecDirectA(hS,
+            (SQLCHAR*)"IF COL_LENGTH('Users','gold') IS NULL "
+                      "ALTER TABLE Users ADD gold INT NOT NULL DEFAULT 0",
+            SQL_NTS);
+        SQLFreeHandle(SQL_HANDLE_STMT, hS);
+    }
 
     return true;
 }
@@ -73,7 +83,7 @@ DbLoginResult Database::Login(const char* username, const char* password,
 
     SQLRETURN ret = SQLPrepareA(hStmt,
         (SQLCHAR*)"SELECT password, x, y, hp, max_hp, exp, level, "
-                  "str_stat, int_stat, dex_stat, luk_stat, stat_pts, visual_id "
+                  "str_stat, int_stat, dex_stat, luk_stat, stat_pts, visual_id, gold "
                   "FROM Users WHERE username = ?",
         SQL_NTS);
 
@@ -139,6 +149,7 @@ DbLoginResult Database::Login(const char* username, const char* password,
         out.str = out.intl = out.dex = out.luk = 5;
         out.stat_points = 0;
         out.visual_id = 0xFF;   // sentinel: char not selected yet
+        out.gold = 0;
 
         printf("[DB] Registered new user: %s\n", username);
         return DBR_NEW_USER;
@@ -154,7 +165,7 @@ DbLoginResult Database::Login(const char* username, const char* password,
     }
 
     short x = 1000, y = 1000;
-    int hp = 100, max_hp = 100;
+    int hp = 100, max_hp = 100, gold = 0;
     unsigned long long exp = 0;
     unsigned char level = 1, str = 5, intl = 5, dex = 5, luk = 5, sp = 0, vid = 0;
 
@@ -170,6 +181,7 @@ DbLoginResult Database::Login(const char* username, const char* password,
     SQLGetData(hStmt, 11, SQL_C_UTINYINT, &luk,    0, &colLen);
     SQLGetData(hStmt, 12, SQL_C_UTINYINT, &sp,     0, &colLen);
     SQLGetData(hStmt, 13, SQL_C_UTINYINT, &vid,    0, &colLen);
+    SQLGetData(hStmt, 14, SQL_C_LONG,     &gold,   0, &colLen);
 
     SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
 
@@ -180,6 +192,7 @@ DbLoginResult Database::Login(const char* username, const char* password,
     out.str = str; out.intl = intl; out.dex = dex; out.luk = luk;
     out.stat_points = sp;
     out.visual_id   = vid;
+    out.gold        = gold;
 
     printf("[DB] Login OK: %s\n", username);
     return DBR_OK;
@@ -195,12 +208,12 @@ bool Database::SavePlayer(const PlayerSaveData& data)
 
     SQLPrepareA(hStmt,
         (SQLCHAR*)"UPDATE Users SET x=?, y=?, hp=?, max_hp=?, exp=?, level=?, "
-                  "str_stat=?, int_stat=?, dex_stat=?, luk_stat=?, stat_pts=?, visual_id=? "
+                  "str_stat=?, int_stat=?, dex_stat=?, luk_stat=?, stat_pts=?, visual_id=?, gold=? "
                   "WHERE username=?",
         SQL_NTS);
 
     short x = data.x, y = data.y;
-    int hp = data.hp, max_hp = data.max_hp;
+    int hp = data.hp, max_hp = data.max_hp, gld = data.gold;
     unsigned long long exp = data.exp;
     unsigned char lv = data.level, st = data.str, it = data.intl,
                   dx = data.dex,   lk = data.luk,  sp = data.stat_points,
@@ -219,7 +232,8 @@ bool Database::SavePlayer(const PlayerSaveData& data)
     SQLBindParameter(hStmt, 10, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,  3,  0, &lk,     0, &ind);
     SQLBindParameter(hStmt, 11, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,  3,  0, &sp,     0, &ind);
     SQLBindParameter(hStmt, 12, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,  3,  0, &vid,    0, &ind);
-    SQLBindParameter(hStmt, 13, SQL_PARAM_INPUT, SQL_C_CHAR,     SQL_VARCHAR,  20, 0,
+    SQLBindParameter(hStmt, 13, SQL_PARAM_INPUT, SQL_C_LONG,     SQL_INTEGER,  10, 0, &gld,    0, &ind);
+    SQLBindParameter(hStmt, 14, SQL_PARAM_INPUT, SQL_C_CHAR,     SQL_VARCHAR,  20, 0,
         (SQLPOINTER)data.username, 0, &nameInd);
 
     SQLRETURN ret = SQLExecute(hStmt);

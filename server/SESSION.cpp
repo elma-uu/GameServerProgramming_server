@@ -394,6 +394,9 @@ bool SESSION::processPacket(unsigned char* p)
 		std::shared_ptr<SESSION> target = clients[target_id];
 		if (!target) break;
 
+		// No PvP: only NPCs can be attacked
+		if (target->is_player) break;
+
 		// Damage: STR * 100, crit = LUK% chance -> x2
 		int damage = static_cast<int>(mStr) * 100;
 		bool is_crit = (rand() % 100) < static_cast<int>(mLuk);
@@ -409,6 +412,26 @@ bool SESSION::processPacket(unsigned char* p)
 
 		std::cout << "[Attack] Player[" << mId << "] -> [" << target_id << "]: "
 			<< damage << (is_crit ? " CRIT" : "") << (killed ? " (killed)" : "") << "\n";
+
+		// Broadcast damage number to all watchers of the target
+		{
+			S2C_DamageNumber dn;
+			dn.size      = sizeof(S2C_DamageNumber);
+			dn.type      = S2C_DAMAGE_NUMBER;
+			dn.object_id = target_id;
+			dn.damage    = damage;
+			dn.is_crit   = is_crit ? 1 : 0;
+			target->m_visible_mutex.lock();
+			auto dn_watchers = target->m_visible_players;
+			target->m_visible_mutex.unlock();
+			for (int pid : dn_watchers) {
+				auto pit = clients.find(pid);
+				if (pit == clients.end()) continue;
+				std::shared_ptr<SESSION> pl = pit->second;
+				if (!pl || pl->mState != CS_PLAYING) continue;
+				pl->doSend(dn.size, reinterpret_cast<char*>(&dn));
+			}
+		}
 
 		if (killed) {
 			// Notify everyone who could see this NPC
@@ -512,6 +535,9 @@ bool SESSION::processPacket(unsigned char* p)
 			std::shared_ptr<SESSION> target = clients[target_id];
 			if (!target) continue;
 
+			// No PvP
+			if (target->is_player) continue;
+
 			int damage = static_cast<int>(mStr) * 150;
 			bool is_crit = (rand() % 100) < static_cast<int>(mLuk);
 			if (is_crit) damage *= 2;
@@ -519,6 +545,26 @@ bool SESSION::processPacket(unsigned char* p)
 			target->mHp -= damage;
 			if (target->mHp <= 0 && target->is_player) target->mHp = 1;
 			bool killed = (target->mHp <= 0 && !target->is_player);
+
+			// Damage number to all watchers
+			{
+				S2C_DamageNumber dn;
+				dn.size      = sizeof(S2C_DamageNumber);
+				dn.type      = S2C_DAMAGE_NUMBER;
+				dn.object_id = target_id;
+				dn.damage    = damage;
+				dn.is_crit   = is_crit ? 1 : 0;
+				target->m_visible_mutex.lock();
+				auto dn_w = target->m_visible_players;
+				target->m_visible_mutex.unlock();
+				for (int pid : dn_w) {
+					auto pit = clients.find(pid);
+					if (pit == clients.end()) continue;
+					std::shared_ptr<SESSION> pl = pit->second;
+					if (!pl || pl->mState != CS_PLAYING) continue;
+					pl->doSend(dn.size, reinterpret_cast<char*>(&dn));
+				}
+			}
 			if (killed) target->mHp = 0;
 
 			if (killed) {

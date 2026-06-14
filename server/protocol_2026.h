@@ -48,6 +48,8 @@ enum PACKET_TYPE {
 	S2C_PARTY_UPDATE,	//	Server to Client: current party membership/state
 
 	C2S_CHAR_SELECT,	//	Client to Server: choose character visual (sent before entering world)
+
+	S2C_DAMAGE_NUMBER,	//	Server to Client: show floating damage number near an object
 };
 
 enum STAT_TYPE : unsigned char {
@@ -247,6 +249,14 @@ struct C2S_CharSelect {
 	unsigned char size;
 	PACKET_TYPE   type;
 	unsigned char visual_id; // 0=base 1=alice 2=metalPlate 3=pickax 4=redLotus
+};
+
+struct S2C_DamageNumber {
+	unsigned char size;
+	PACKET_TYPE   type;
+	int           object_id; // target that received the hit
+	int           damage;
+	unsigned char is_crit;   // 1 = critical hit
 };
 
 #pragma pack(pop) // Restore default packing

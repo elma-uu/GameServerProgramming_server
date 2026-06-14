@@ -348,6 +348,7 @@ bool SESSION::processPacket(unsigned char* p)
 	case C2S_STAT_INVEST:
 	{
 		if (mStatPoints == 0) break;
+		if (!is_in_safe_zone(mX, mY)) break;
 		C2S_StatInvest* packet = reinterpret_cast<C2S_StatInvest*>(p);
 		switch (packet->stat_type)
 		{

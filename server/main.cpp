@@ -76,13 +76,13 @@ void initNpcs()
 // Triangle layout (center 1000,1000):
 //         [A]           <- Ability top vertex  (1000, 993)
 //
-//   [R]         [S]    <- Restaurant bottom-left (994, 1007), Shop bottom-right (1006, 1007)
+//   [Q]         [S]    <- Quest NPC bottom-left (994, 1007), Shop bottom-right (1006, 1007)
 void initTownNpcs()
 {
 	struct TownNpcDef { short x; short y; int visualId; const char* name; };
 	const TownNpcDef defs[3] = {
 		{ 1000, 993,  VISUAL_TOWN_ABILITY,    "Ability NPC" },
-		{  994, 1007, VISUAL_TOWN_RESTAURANT, "Restaurant"  },
+		{  994, 1007, VISUAL_TOWN_RESTAURANT, "Quest NPC"   },
 		{ 1006, 1007, VISUAL_TOWN_SHOP,       "Shop"        },
 	};
 

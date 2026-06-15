@@ -42,6 +42,9 @@
     <ClCompile Include="LuaManager.cpp">
       <Filter>LUA</Filter>
     </ClCompile>
+    <ClCompile Include="PartyManager.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="protocol_2026.h">
@@ -65,10 +68,16 @@
     <ClInclude Include="LuaManager.h">
       <Filter>LUA</Filter>
     </ClInclude>
+    <ClInclude Include="PartyManager.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
     <None Include="npc_ai.lua">
+      <Filter>LUA</Filter>
+    </None>
+    <None Include="quests.lua">
       <Filter>LUA</Filter>
     </None>
   </ItemGroup>

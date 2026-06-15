@@ -1,0 +1,134 @@
+#include "pch.h"
+#include "SESSION.h"
+#include "LuaManager.h"
+
+void SESSION::sendAvatarInfo()
+{
+	S2C_AvatarInfo packet;
+	packet.size     = sizeof(S2C_AvatarInfo);
+	packet.type     = S2C_AVATAR_INFO;
+	packet.playerId = mId;
+	packet.visualId = mVisualId;
+	packet.x        = mX;
+	packet.y        = mY;
+	packet.exp      = mExp;
+	packet.level    = mLevel;
+	packet.hp       = mHp;
+	packet.max_hp   = mMaxHp;
+	doSend(packet.size, reinterpret_cast<char*>(&packet));
+	sendStatInfo();
+}
+
+void SESSION::sendStatInfo()
+{
+	S2C_StatInfo packet;
+	packet.size        = sizeof(S2C_StatInfo);
+	packet.type        = S2C_STAT_INFO;
+	packet.object_id   = mId;
+	packet.str         = mStr;
+	packet.intl        = mIntl;
+	packet.dex         = mDex;
+	packet.luk         = mLuk;
+	packet.stat_points = mStatPoints;
+	doSend(packet.size, reinterpret_cast<char*>(&packet));
+}
+
+void SESSION::sendGoldUpdate()
+{
+	S2C_GoldUpdate pkt;
+	pkt.size = sizeof(S2C_GoldUpdate);
+	pkt.type = S2C_GOLD_UPDATE;
+	pkt.gold = mGold;
+	doSend(pkt.size, reinterpret_cast<char*>(&pkt));
+}
+
+// new_hp field is repurposed to carry the item count after purchase.
+void SESSION::sendBuyResult(bool success, ITEM_TYPE item, int itemCount, short /*unused_x*/, short /*unused_y*/)
+{
+	S2C_BuyResult pkt;
+	pkt.size      = sizeof(S2C_BuyResult);
+	pkt.type      = S2C_BUY_RESULT;
+	pkt.success   = success ? 1 : 0;
+	pkt.item_type = item;
+	pkt.gold      = mGold;
+	pkt.new_hp    = itemCount;  // client reads this as the new inventory count
+	pkt.new_x     = 0;
+	pkt.new_y     = 0;
+	doSend(pkt.size, reinterpret_cast<char*>(&pkt));
+}
+
+void SESSION::sendUseItemResult(bool success, ITEM_TYPE item, int itemCount, int newHp, short newX, short newY)
+{
+	S2C_UseItemResult pkt;
+	pkt.size       = sizeof(S2C_UseItemResult);
+	pkt.type       = S2C_USE_ITEM_RESULT;
+	pkt.success    = success ? 1 : 0;
+	pkt.item_type  = item;
+	pkt.item_count = itemCount;
+	pkt.new_hp     = newHp;
+	pkt.new_x      = newX;
+	pkt.new_y      = newY;
+	doSend(pkt.size, reinterpret_cast<char*>(&pkt));
+}
+
+void SESSION::sendRespawn()
+{
+	S2C_Respawn pkt;
+	pkt.size   = sizeof(S2C_Respawn);
+	pkt.type   = S2C_RESPAWN;
+	pkt.hp     = mHp;
+	pkt.max_hp = mMaxHp;
+	pkt.x      = mX;
+	pkt.y      = mY;
+	doSend(pkt.size, reinterpret_cast<char*>(&pkt));
+}
+
+void SESSION::sendQuestUpdate(int questId)
+{
+	if (questId < 0 || questId > 1) return;
+	S2C_QuestUpdate pkt;
+	pkt.size        = sizeof(S2C_QuestUpdate);
+	pkt.type        = S2C_QUEST_UPDATE;
+	pkt.quest_id    = (unsigned char)questId;
+	pkt.quest_state = mQuests[questId].state;
+	pkt.progress    = mQuests[questId].progress;
+	pkt.goal        = mQuests[questId].goal;
+	doSend(pkt.size, reinterpret_cast<char*>(&pkt));
+}
+
+void SESSION::onMonsterKilled()
+{
+	if (mQuests[1].state != 1) return;
+	mQuests[1].progress++;
+	if (mQuests[1].progress >= mQuests[1].goal) {
+		mQuests[1].state    = 2;
+		mQuests[1].progress = mQuests[1].goal;
+	}
+	sendQuestUpdate(1);
+}
+
+void SESSION::enterWorld()
+{
+	int initial_sector_id = get_sector_id(mX, mY);
+	sectors[initial_sector_id].insert(mId);
+	mSector_id = initial_sector_id;
+
+	sendAvatarInfo();
+	mState = CS_PLAYING;
+
+	std::unordered_set<int> new_v_players;
+	get_visible_players_from_sectors(new_v_players);
+	for (int id : new_v_players) {
+		sendAddPlayer(id);
+		std::shared_ptr<SESSION> pl = clients[id];
+		if (!pl) continue;
+		pl->sendAddPlayer(mId);
+	}
+
+	std::unordered_set<int> visible_npcs;
+	get_visible_npcs_from_sectors(visible_npcs);
+	for (int npc_id : visible_npcs)
+		sendAddNpc(npc_id);
+
+	sendGoldUpdate();
+}

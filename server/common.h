@@ -13,6 +13,7 @@
 #include <random>
 #include <cmath>
 #include <tbb/concurrent_unordered_map.h>
+#include <tbb/concurrent_queue.h>
 
 #pragma comment(lib, "MSWSock.lib")
 #pragma comment(lib, "WS2_32.lib")

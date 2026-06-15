@@ -138,17 +138,27 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Database.cpp" />
+    <ClCompile Include="DungeonManager.cpp" />
     <ClCompile Include="EXP_OVER.cpp" />
     <ClCompile Include="LuaManager.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="NpcThread.cpp" />
     <ClCompile Include="PartyManager.cpp" />
     <ClCompile Include="SESSION.cpp" />
+    <ClCompile Include="SessionCore.cpp" />
+    <ClCompile Include="SessionNpc.cpp" />
+    <ClCompile Include="SessionPackets.cpp" />
+    <ClCompile Include="SessionParty.cpp" />
+    <ClCompile Include="SessionVisible.cpp" />
+    <ClCompile Include="WorkerThread.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="common.h" />
+    <ClInclude Include="DungeonManager.h" />
     <ClInclude Include="Database.h" />
     <ClInclude Include="EXP_OVER.h" />
     <ClInclude Include="LuaManager.h" />
+    <ClInclude Include="ObjectPool.h" />
     <ClInclude Include="PartyManager.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="protocol_2026.h" />
@@ -157,6 +167,7 @@
   <ItemGroup>
     <None Include="npc_ai.lua" />
     <None Include="packages.config" />
+    <None Include="quests.lua" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

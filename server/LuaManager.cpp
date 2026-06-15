@@ -21,6 +21,7 @@ bool LuaManager::Init(const char* script_path)
     // Validate by test-loading into a temporary state
     lua_State* test = luaL_newstate();
     luaL_openlibs(test);
+    lua_register(test, "is_walkable", lua_is_walkable);  // must match InitThread
     bool ok = (luaL_dofile(test, script_path) == LUA_OK);
     if (!ok)
         printf("[Lua] Failed to validate %s: %s\n", script_path, lua_tostring(test, -1));

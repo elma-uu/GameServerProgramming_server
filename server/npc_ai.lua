@@ -1,9 +1,9 @@
 -- npc_ai.lua: A* pathfinding for NPC chase behavior
 -- Called from C++ via LuaManager::GetNextStep(sx, sy, gx, gy, max_range)
--- Returns: dx, dy  (one-tile step toward goal)
+-- Returns: dx, dy  (one-tile step toward goal, or 0,0 if blocked/unreachable)
 
 local function node_key(x, y)
-    return x * 1000003 + y
+    return x * 100003 + y
 end
 
 local function heuristic(x, y, gx, gy)
@@ -18,21 +18,26 @@ function find_next_step(sx, sy, gx, gy, max_range)
 
     if sx == gx and sy == gy then return 0, 0 end
 
-    -- Clamp goal inside max_range radius
+    -- Clamp goal inside Manhattan max_range
     local dx_goal = gx - sx
     local dy_goal = gy - sy
-    local dist = math.sqrt(dx_goal * dx_goal + dy_goal * dy_goal)
-    if dist > max_range then
-        local scale = max_range / dist
+    local manhattan = math.abs(dx_goal) + math.abs(dy_goal)
+    if manhattan > max_range then
+        local scale = max_range / manhattan
         gx = math.floor(sx + dx_goal * scale)
         gy = math.floor(sy + dy_goal * scale)
+        -- Ensure clamped goal is walkable; shift 1 tile back if needed
+        if not is_walkable(gx, gy) then
+            gx = gx + (dx_goal > 0 and -1 or 1)
+            gy = gy + (dy_goal > 0 and -1 or 1)
+        end
     end
 
     -- A* state
-    local open      = {}   -- node_key -> {x, y, g, f}
-    local g_score   = {}   -- node_key -> number
-    local came_from = {}   -- node_key -> {px, py}  (nil = start)
-    local closed    = {}   -- node_key -> bool
+    local open      = {}  -- node_key -> {x, y, g, f}
+    local g_score   = {}  -- node_key -> number
+    local came_from = {}  -- node_key -> {px, py}  (nil = start)
+    local closed    = {}  -- node_key -> bool
 
     local sk = node_key(sx, sy)
     g_score[sk]   = 0
@@ -42,8 +47,8 @@ function find_next_step(sx, sy, gx, gy, max_range)
     local dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} }
     local found = false
 
-    for _ = 1, 600 do
-        -- Pick open node with lowest f  (simple linear scan: good enough for small range)
+    for _ = 1, 800 do
+        -- Pick open node with lowest f (linear scan — fine for max_range <= 20)
         local best_k, best = nil, nil
         for k, n in pairs(open) do
             if best == nil or n.f < best.f then
@@ -64,9 +69,10 @@ function find_next_step(sx, sy, gx, gy, max_range)
             local nx = best.x + d[1]
             local ny = best.y + d[2]
 
-            -- Stay within max_range of start, world bounds, and not a wall
-            if  math.abs(nx - sx) <= max_range
-            and math.abs(ny - sy) <= max_range
+            -- [FIX] Manhattan distance bound (was Chebyshev — too large diagonally)
+            -- [FIX] Wall check via registered C++ function
+            local mdist = math.abs(nx - sx) + math.abs(ny - sy)
+            if  mdist <= max_range
             and nx >= 0 and ny >= 0
             and is_walkable(nx, ny) then
                 local nk = node_key(nx, ny)
@@ -84,18 +90,24 @@ function find_next_step(sx, sy, gx, gy, max_range)
     end
 
     if not found then
-        -- Fallback: try one step toward goal, avoiding walls
+        -- [FIX] Fallback: try the 4 directions in priority order, prefer toward goal
         local odx = gx - sx
         local ody = gy - sy
         local sdx = (odx > 0) and 1 or (odx < 0 and -1 or 0)
         local sdy = (ody > 0) and 1 or (ody < 0 and -1 or 0)
+
+        -- Try primary axis first, then secondary, then opposite axes
+        local candidates
         if math.abs(odx) >= math.abs(ody) then
-            if sdx ~= 0 and is_walkable(sx + sdx, sy) then return sdx, 0
-            elseif sdy ~= 0 and is_walkable(sx, sy + sdy) then return 0, sdy
-            end
+            candidates = { {sdx,0}, {0,sdy}, {0,-sdy}, {-sdx,0} }
         else
-            if sdy ~= 0 and is_walkable(sx, sy + sdy) then return 0, sdy
-            elseif sdx ~= 0 and is_walkable(sx + sdx, sy) then return sdx, 0
+            candidates = { {0,sdy}, {sdx,0}, {-sdx,0}, {0,-sdy} }
+        end
+        for _, c in ipairs(candidates) do
+            if c[1] ~= 0 or c[2] ~= 0 then
+                if is_walkable(sx + c[1], sy + c[2]) then
+                    return c[1], c[2]
+                end
             end
         end
         return 0, 0
@@ -103,15 +115,27 @@ function find_next_step(sx, sy, gx, gy, max_range)
 
     -- Reconstruct path: trace back from goal to find first step after start
     local cx, cy = gx, gy
-    while true do
+    local steps = 0
+    while steps < max_range + 2 do
+        steps = steps + 1
         local ck     = node_key(cx, cy)
         local parent = came_from[ck]
-        if parent == nil then break end          -- reached start unexpectedly
+        if parent == nil then
+            -- [FIX] Reached start node without finding first step → use fallback
+            break
+        end
         if parent[1] == sx and parent[2] == sy then
-            return cx - sx, cy - sy             -- first step found
+            return cx - sx, cy - sy   -- first step found
         end
         cx, cy = parent[1], parent[2]
     end
 
+    -- [FIX] Path reconstruction failed — use single-step fallback
+    local odx = gx - sx
+    local ody = gy - sy
+    local sdx = (odx > 0) and 1 or (odx < 0 and -1 or 0)
+    local sdy = (ody > 0) and 1 or (ody < 0 and -1 or 0)
+    if sdx ~= 0 and is_walkable(sx + sdx, sy) then return sdx, 0 end
+    if sdy ~= 0 and is_walkable(sx, sy + sdy) then return 0, sdy end
     return 0, 0
 end

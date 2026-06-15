@@ -173,8 +173,10 @@ bool SESSION::processPacket(unsigned char* p)
 			break;
 		}
 
-		// Wall collision: reject move if destination is a wall
-		if (!IsWalkable(packet->x, packet->y)) break;
+		// Bounds + wall collision check
+		short nx = packet->x, ny = packet->y;
+		if (nx < 0 || nx >= (short)WORLD_WIDTH || ny < 0 || ny >= (short)WORLD_HEIGHT) break;
+		if (!IsWalkable(nx, ny)) break;
 
 		mX = packet->x;
 		mY = packet->y;

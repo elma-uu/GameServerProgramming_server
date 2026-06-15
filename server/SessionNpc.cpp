@@ -121,13 +121,20 @@ void SESSION::doNpcMove()
 				}
 
 				short dx = 0, dy = 0;
+				bool moved = false;
 				if (LuaManager::GetNextStep(mX, mY, tgt->mX, tgt->mY, dx, dy)) {
-					newX = mX + dx;
-					newY = mY + dy;
+					if (dx != 0 || dy != 0) {
+						newX  = mX + dx;
+						newY  = mY + dy;
+						moved = true;
+					}
 				}
-				if (--mChaseRemaining <= 0) {
-					mTargetId = -1;
-					mChaseRemaining = 0;
+				// Only count down when NPC can actually move toward target
+				if (moved) {
+					if (--mChaseRemaining <= 0) {
+						mTargetId = -1;
+						mChaseRemaining = 0;
+					}
 				}
 			}
 		}

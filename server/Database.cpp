@@ -57,6 +57,34 @@ bool Database::Connect()
             SQL_NTS);
         SQLFreeHandle(SQL_HANDLE_STMT, hS);
     }
+    // Ensure inventory columns exist
+    {
+        SQLHSTMT hS = SQL_NULL_HSTMT;
+        SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hS);
+        SQLExecDirectA(hS,
+            (SQLCHAR*)"IF COL_LENGTH('Users','potion_count') IS NULL "
+                      "ALTER TABLE Users ADD potion_count INT NOT NULL DEFAULT 0",
+            SQL_NTS);
+        SQLFreeHandle(SQL_HANDLE_STMT, hS);
+    }
+    {
+        SQLHSTMT hS = SQL_NULL_HSTMT;
+        SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hS);
+        SQLExecDirectA(hS,
+            (SQLCHAR*)"IF COL_LENGTH('Users','scroll_count') IS NULL "
+                      "ALTER TABLE Users ADD scroll_count INT NOT NULL DEFAULT 0",
+            SQL_NTS);
+        SQLFreeHandle(SQL_HANDLE_STMT, hS);
+    }
+    {
+        SQLHSTMT hS = SQL_NULL_HSTMT;
+        SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hS);
+        SQLExecDirectA(hS,
+            (SQLCHAR*)"IF COL_LENGTH('Users','weapon_enhance') IS NULL "
+                      "ALTER TABLE Users ADD weapon_enhance INT NOT NULL DEFAULT 0",
+            SQL_NTS);
+        SQLFreeHandle(SQL_HANDLE_STMT, hS);
+    }
 
     return true;
 }
@@ -83,7 +111,8 @@ DbLoginResult Database::Login(const char* username, const char* password,
 
     SQLRETURN ret = SQLPrepareA(hStmt,
         (SQLCHAR*)"SELECT password, x, y, hp, max_hp, exp, level, "
-                  "str_stat, int_stat, dex_stat, luk_stat, stat_pts, visual_id, gold "
+                  "str_stat, int_stat, dex_stat, luk_stat, stat_pts, visual_id, gold, "
+                  "potion_count, scroll_count, weapon_enhance "
                   "FROM Users WHERE username = ?",
         SQL_NTS);
 
@@ -115,8 +144,9 @@ DbLoginResult Database::Login(const char* username, const char* password,
         SQLPrepareA(hStmt,
             (SQLCHAR*)"INSERT INTO Users "
                       "(username, password, x, y, hp, max_hp, exp, level, "
-                      " str_stat, int_stat, dex_stat, luk_stat, stat_pts, visual_id) "
-                      "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                      " str_stat, int_stat, dex_stat, luk_stat, stat_pts, visual_id, "
+                      " potion_count, scroll_count, weapon_enhance) "
+                      "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             SQL_NTS);
 
         SQLLEN len1 = SQL_NTS, len2 = SQL_NTS;
@@ -134,6 +164,10 @@ DbLoginResult Database::Login(const char* username, const char* password,
         SQLBindParameter(hStmt, 12, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,   3, 0, &defSt,     0, &ind);
         SQLBindParameter(hStmt, 13, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,   3, 0, &defSt,     0, &ind);
         SQLBindParameter(hStmt, 14, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,   3, 0, &defVid,    0, &ind);
+        int defZero = 0;
+        SQLBindParameter(hStmt, 15, SQL_PARAM_INPUT, SQL_C_LONG,     SQL_INTEGER,  10, 0, &defZero,   0, &ind);
+        SQLBindParameter(hStmt, 16, SQL_PARAM_INPUT, SQL_C_LONG,     SQL_INTEGER,  10, 0, &defZero,   0, &ind);
+        SQLBindParameter(hStmt, 17, SQL_PARAM_INPUT, SQL_C_LONG,     SQL_INTEGER,  10, 0, &defZero,   0, &ind);
 
         SQLRETURN insRet = SQLExecute(hStmt);
         SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
@@ -150,6 +184,7 @@ DbLoginResult Database::Login(const char* username, const char* password,
         out.stat_points = 0;
         out.visual_id = 0xFF;   // sentinel: char not selected yet
         out.gold = 0;
+        out.potion_count = 0; out.scroll_count = 0; out.weapon_enhance = 0;
 
         printf("[DB] Registered new user: %s\n", username);
         return DBR_NEW_USER;
@@ -166,22 +201,26 @@ DbLoginResult Database::Login(const char* username, const char* password,
 
     short x = 1000, y = 1000;
     int hp = 100, max_hp = 100, gold = 0;
+    int potion_count = 0, scroll_count = 0, weapon_enhance = 0;
     unsigned long long exp = 0;
     unsigned char level = 1, str = 5, intl = 5, dex = 5, luk = 5, sp = 0, vid = 0;
 
-    SQLGetData(hStmt, 2,  SQL_C_SSHORT,   &x,      0, &colLen);
-    SQLGetData(hStmt, 3,  SQL_C_SSHORT,   &y,      0, &colLen);
-    SQLGetData(hStmt, 4,  SQL_C_LONG,     &hp,     0, &colLen);
-    SQLGetData(hStmt, 5,  SQL_C_LONG,     &max_hp, 0, &colLen);
-    SQLGetData(hStmt, 6,  SQL_C_UBIGINT,  &exp,    0, &colLen);
-    SQLGetData(hStmt, 7,  SQL_C_UTINYINT, &level,  0, &colLen);
-    SQLGetData(hStmt, 8,  SQL_C_UTINYINT, &str,    0, &colLen);
-    SQLGetData(hStmt, 9,  SQL_C_UTINYINT, &intl,   0, &colLen);
-    SQLGetData(hStmt, 10, SQL_C_UTINYINT, &dex,    0, &colLen);
-    SQLGetData(hStmt, 11, SQL_C_UTINYINT, &luk,    0, &colLen);
-    SQLGetData(hStmt, 12, SQL_C_UTINYINT, &sp,     0, &colLen);
-    SQLGetData(hStmt, 13, SQL_C_UTINYINT, &vid,    0, &colLen);
-    SQLGetData(hStmt, 14, SQL_C_LONG,     &gold,   0, &colLen);
+    SQLGetData(hStmt, 2,  SQL_C_SSHORT,   &x,             0, &colLen);
+    SQLGetData(hStmt, 3,  SQL_C_SSHORT,   &y,             0, &colLen);
+    SQLGetData(hStmt, 4,  SQL_C_LONG,     &hp,            0, &colLen);
+    SQLGetData(hStmt, 5,  SQL_C_LONG,     &max_hp,        0, &colLen);
+    SQLGetData(hStmt, 6,  SQL_C_UBIGINT,  &exp,           0, &colLen);
+    SQLGetData(hStmt, 7,  SQL_C_UTINYINT, &level,         0, &colLen);
+    SQLGetData(hStmt, 8,  SQL_C_UTINYINT, &str,           0, &colLen);
+    SQLGetData(hStmt, 9,  SQL_C_UTINYINT, &intl,          0, &colLen);
+    SQLGetData(hStmt, 10, SQL_C_UTINYINT, &dex,           0, &colLen);
+    SQLGetData(hStmt, 11, SQL_C_UTINYINT, &luk,           0, &colLen);
+    SQLGetData(hStmt, 12, SQL_C_UTINYINT, &sp,            0, &colLen);
+    SQLGetData(hStmt, 13, SQL_C_UTINYINT, &vid,           0, &colLen);
+    SQLGetData(hStmt, 14, SQL_C_LONG,     &gold,          0, &colLen);
+    SQLGetData(hStmt, 15, SQL_C_LONG,     &potion_count,  0, &colLen);
+    SQLGetData(hStmt, 16, SQL_C_LONG,     &scroll_count,  0, &colLen);
+    SQLGetData(hStmt, 17, SQL_C_LONG,     &weapon_enhance,0, &colLen);
 
     SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
 
@@ -191,8 +230,11 @@ DbLoginResult Database::Login(const char* username, const char* password,
     out.exp = exp; out.level = level;
     out.str = str; out.intl = intl; out.dex = dex; out.luk = luk;
     out.stat_points = sp;
-    out.visual_id   = vid;
-    out.gold        = gold;
+    out.visual_id    = vid;
+    out.gold         = gold;
+    out.potion_count  = potion_count;
+    out.scroll_count  = scroll_count;
+    out.weapon_enhance = weapon_enhance;
 
     printf("[DB] Login OK: %s\n", username);
     return DBR_OK;
@@ -208,12 +250,14 @@ bool Database::SavePlayer(const PlayerSaveData& data)
 
     SQLPrepareA(hStmt,
         (SQLCHAR*)"UPDATE Users SET x=?, y=?, hp=?, max_hp=?, exp=?, level=?, "
-                  "str_stat=?, int_stat=?, dex_stat=?, luk_stat=?, stat_pts=?, visual_id=?, gold=? "
+                  "str_stat=?, int_stat=?, dex_stat=?, luk_stat=?, stat_pts=?, visual_id=?, gold=?, "
+                  "potion_count=?, scroll_count=?, weapon_enhance=? "
                   "WHERE username=?",
         SQL_NTS);
 
     short x = data.x, y = data.y;
     int hp = data.hp, max_hp = data.max_hp, gld = data.gold;
+    int pot = data.potion_count, scr = data.scroll_count, enh = data.weapon_enhance;
     unsigned long long exp = data.exp;
     unsigned char lv = data.level, st = data.str, it = data.intl,
                   dx = data.dex,   lk = data.luk,  sp = data.stat_points,
@@ -233,7 +277,10 @@ bool Database::SavePlayer(const PlayerSaveData& data)
     SQLBindParameter(hStmt, 11, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,  3,  0, &sp,     0, &ind);
     SQLBindParameter(hStmt, 12, SQL_PARAM_INPUT, SQL_C_UTINYINT, SQL_TINYINT,  3,  0, &vid,    0, &ind);
     SQLBindParameter(hStmt, 13, SQL_PARAM_INPUT, SQL_C_LONG,     SQL_INTEGER,  10, 0, &gld,    0, &ind);
-    SQLBindParameter(hStmt, 14, SQL_PARAM_INPUT, SQL_C_CHAR,     SQL_VARCHAR,  20, 0,
+    SQLBindParameter(hStmt, 14, SQL_PARAM_INPUT, SQL_C_LONG,     SQL_INTEGER,  10, 0, &pot,    0, &ind);
+    SQLBindParameter(hStmt, 15, SQL_PARAM_INPUT, SQL_C_LONG,     SQL_INTEGER,  10, 0, &scr,    0, &ind);
+    SQLBindParameter(hStmt, 16, SQL_PARAM_INPUT, SQL_C_LONG,     SQL_INTEGER,  10, 0, &enh,    0, &ind);
+    SQLBindParameter(hStmt, 17, SQL_PARAM_INPUT, SQL_C_CHAR,     SQL_VARCHAR,  20, 0,
         (SQLPOINTER)data.username, 0, &nameInd);
 
     SQLRETURN ret = SQLExecute(hStmt);

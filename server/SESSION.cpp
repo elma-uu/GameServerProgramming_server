@@ -15,7 +15,7 @@ std::unordered_set<int> g_active_npcs;
 
 SOCKET     g_server;
 HANDLE     g_iocp;
-std::mutex g_sectors_mutex;
+std::mutex g_sector_locks[SECTOR_STRIPE_COUNT];
 tbb::concurrent_queue<int>            g_free_player_ids;
 tbb::concurrent_queue<PlayerSaveData> g_pending_saves;
 
@@ -101,8 +101,12 @@ void SESSION::doSend(int numBytes, char* mess)
 	o->m_wsa.len = numBytes;
 	memcpy(o->m_ring_buffer.buffer, mess, numBytes);
 	int send_result = WSASend(mClient, &o->m_wsa, 1, 0, 0, &o->m_over, nullptr);
-	if (send_result == SOCKET_ERROR && WSAGetLastError() != WSA_IO_PENDING) {
-		std::cout << "WSASend failed: " << WSAGetLastError() << std::endl;
-		ObjectPool::ReleaseSend(o);
+	if (send_result == SOCKET_ERROR) {
+		int err = WSAGetLastError();
+		if (err != WSA_IO_PENDING) {
+			// 10054=CONNRESET, 10053=CONNABORTED, 10058=SHUTDOWN — client disconnected;
+			// the pending WSARecv will complete via IOCP and call disconnect() automatically.
+			ObjectPool::ReleaseSend(o);
+		}
 	}
 }

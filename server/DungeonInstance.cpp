@@ -585,7 +585,7 @@ void DungeonInstance::HandleBossDeath()
         int sid = get_sector_id(WORLD_SPAWN_X, WORLD_SPAWN_Y);
         p->mSector_id = sid;
         {
-            std::lock_guard<std::mutex> lk(g_sectors_mutex);
+            SectorLock _lk(sid);
             sectors[sid].insert(p->mId);
         }
 
@@ -653,7 +653,7 @@ void DungeonInstance::CheckWipe()
         int sid = get_sector_id(WORLD_SPAWN_X, WORLD_SPAWN_Y);
         p->mSector_id = sid;
         {
-            std::lock_guard<std::mutex> lk(g_sectors_mutex);
+            SectorLock _lk(sid);
             sectors[sid].insert(p->mId);
         }
 

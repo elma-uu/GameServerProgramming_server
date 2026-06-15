@@ -22,7 +22,7 @@ void SESSION::get_visible_players_from_sectors(std::unordered_set<int>& visible_
 			int sector_id = sector_y * sectors_x + sector_x;
 			std::vector<int> snap;
 			{
-				std::lock_guard<std::mutex> lk(g_sectors_mutex);
+				SectorLock _lk(sector_id);
 				auto it = sectors.find(sector_id);
 				if (it != sectors.end())
 					snap.assign(it->second.begin(), it->second.end());
@@ -52,7 +52,7 @@ void SESSION::get_visible_npcs_from_sectors(std::unordered_set<int>& visible_set
 			int sector_id = sy * sectors_x + sx;
 			std::vector<int> snap;
 			{
-				std::lock_guard<std::mutex> lk(g_sectors_mutex);
+				SectorLock _lk(sector_id);
 				auto it = sectors.find(sector_id);
 				if (it != sectors.end())
 					snap.assign(it->second.begin(), it->second.end());

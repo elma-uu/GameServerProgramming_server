@@ -141,13 +141,40 @@ void SESSION::enterWorld()
 
 	int initial_sector_id = get_sector_id(mX, mY);
 	{
-		std::lock_guard<std::mutex> lk(g_sectors_mutex);
+		SectorLock _lk(initial_sector_id);
 		sectors[initial_sector_id].insert(mId);
 	}
 	mSector_id = initial_sector_id;
 
 	sendAvatarInfo();
 	mState = CS_PLAYING;
+
+	// Sync inventory counts so client display matches server state after re-login
+	{
+		S2C_BuyResult p;
+		p.size      = sizeof(S2C_BuyResult);
+		p.type      = S2C_BUY_RESULT;
+		p.success   = 1;
+		p.gold      = mGold;
+		p.new_x     = 0; p.new_y = 0;
+
+		p.item_type = ITEM_HP_POTION;
+		p.new_hp    = mPotionCount;
+		doSend(p.size, reinterpret_cast<char*>(&p));
+
+		p.item_type = ITEM_TELEPORT_SCROLL;
+		p.new_hp    = mScrollCount;
+		doSend(p.size, reinterpret_cast<char*>(&p));
+	}
+	if (mWeaponEnhance > 0) {
+		S2C_EnhanceResult e;
+		e.size      = sizeof(S2C_EnhanceResult);
+		e.type      = S2C_ENHANCE_RESULT;
+		e.result    = 1;
+		e.new_level = (unsigned char)mWeaponEnhance;
+		e.gold      = mGold;
+		doSend(e.size, reinterpret_cast<char*>(&e));
+	}
 
 	std::unordered_set<int> new_v_players;
 	get_visible_players_from_sectors(new_v_players);

@@ -63,7 +63,7 @@ void respawn_timer_thread()
 
 			int new_sector = get_sector_id(npc->mX, npc->mY);
 			{
-				std::lock_guard<std::mutex> lk(g_sectors_mutex);
+				SectorLock _lk(new_sector);
 				sectors[new_sector].insert(npc_id);
 			}
 			npc->mSector_id = new_sector;
@@ -146,9 +146,12 @@ void db_save_thread()
 			data.exp = session->mExp; data.level      = session->mLevel;
 			data.str = session->mStr; data.intl       = session->mIntl;
 			data.dex = session->mDex; data.luk        = session->mLuk;
-			data.stat_points = session->mStatPoints;
-			data.visual_id   = session->mVisualId;
-			data.gold        = session->mGold;
+			data.stat_points   = session->mStatPoints;
+			data.visual_id     = session->mVisualId;
+			data.gold          = session->mGold;
+			data.potion_count  = session->mPotionCount;
+			data.scroll_count  = session->mScrollCount;
+			data.weapon_enhance = session->mWeaponEnhance;
 
 			if (Database::SavePlayer(data)) ++saved;
 		}

@@ -13,6 +13,9 @@ struct PlayerSaveData {
     unsigned char level, str, intl, dex, luk, stat_points;
     unsigned char visual_id;   // 0=base 1=alice 2=metalPlate 3=pickax 4=redLotus
     int           gold;
+    int           potion_count;
+    int           scroll_count;
+    int           weapon_enhance;
 };
 
 // Use DBR_ prefix to avoid Windows SDK macro collisions

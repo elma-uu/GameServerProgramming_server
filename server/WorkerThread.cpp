@@ -20,9 +20,12 @@ void disconnect(int key)
 			sd.exp         = cla->mExp;       sd.level      = cla->mLevel;
 			sd.str         = cla->mStr;       sd.intl       = cla->mIntl;
 			sd.dex         = cla->mDex;       sd.luk        = cla->mLuk;
-			sd.stat_points = cla->mStatPoints;
-			sd.visual_id   = cla->mVisualId;
-			sd.gold        = cla->mGold;
+			sd.stat_points   = cla->mStatPoints;
+			sd.visual_id     = cla->mVisualId;
+			sd.gold          = cla->mGold;
+			sd.potion_count  = cla->mPotionCount;
+			sd.scroll_count  = cla->mScrollCount;
+			sd.weapon_enhance = cla->mWeaponEnhance;
 			// Push to async queue — db_save_thread drains it, so worker thread never blocks on DB
 			g_pending_saves.push(sd);
 		}
@@ -42,7 +45,7 @@ void disconnect(int key)
 		} else {
 			// World player: remove from sector and notify visible players.
 			{
-				std::lock_guard<std::mutex> lk(g_sectors_mutex);
+				SectorLock _lk(cla->mSector_id);
 				sectors[cla->mSector_id].erase(key);
 			}
 

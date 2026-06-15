@@ -1,6 +1,16 @@
 #include "pch.h"
 #include "LuaManager.h"
+#include "MapData.h"
 #include <cstdio>
+
+// Exposed to Lua as is_walkable(wx, wy) → bool
+static int lua_is_walkable(lua_State* L)
+{
+    int wx = (int)lua_tointeger(L, 1);
+    int wy = (int)lua_tointeger(L, 2);
+    lua_pushboolean(L, IsWalkable((short)wx, (short)wy) ? 1 : 0);
+    return 1;
+}
 
 thread_local lua_State* tL = nullptr;
 
@@ -28,6 +38,7 @@ bool LuaManager::InitThread()
 {
     lua_State* L = luaL_newstate();
     luaL_openlibs(L);
+    lua_register(L, "is_walkable", lua_is_walkable);
     for (const auto& s : sScripts) {
         if (luaL_dofile(L, s.c_str()) != LUA_OK) {
             printf("[Lua] Thread failed to load %s: %s\n",

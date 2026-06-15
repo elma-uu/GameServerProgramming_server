@@ -27,7 +27,7 @@ void initNpcs()
 		do {
 			npc->mX = static_cast<short>(distX(rng));
 			npc->mY = static_cast<short>(distY(rng));
-		} while (is_in_safe_zone(npc->mX, npc->mY));
+		} while (is_in_safe_zone(npc->mX, npc->mY) || !IsWalkable(npc->mX, npc->mY));
 
 		{
 			const float MAX_DIST = sqrtf(1000.0f * 1000.0f + 1000.0f * 1000.0f);

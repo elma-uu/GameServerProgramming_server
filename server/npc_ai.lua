@@ -64,10 +64,11 @@ function find_next_step(sx, sy, gx, gy, max_range)
             local nx = best.x + d[1]
             local ny = best.y + d[2]
 
-            -- Stay within max_range of start and world bounds
+            -- Stay within max_range of start, world bounds, and not a wall
             if  math.abs(nx - sx) <= max_range
             and math.abs(ny - sy) <= max_range
-            and nx >= 0 and ny >= 0 then
+            and nx >= 0 and ny >= 0
+            and is_walkable(nx, ny) then
                 local nk = node_key(nx, ny)
                 if not closed[nk] then
                     local ng = best.g + 1
@@ -83,14 +84,21 @@ function find_next_step(sx, sy, gx, gy, max_range)
     end
 
     if not found then
-        -- Fallback: one step directly toward original goal
+        -- Fallback: try one step toward goal, avoiding walls
         local odx = gx - sx
         local ody = gy - sy
+        local sdx = (odx > 0) and 1 or (odx < 0 and -1 or 0)
+        local sdy = (ody > 0) and 1 or (ody < 0 and -1 or 0)
         if math.abs(odx) >= math.abs(ody) then
-            return (odx > 0) and 1 or -1, 0
+            if sdx ~= 0 and is_walkable(sx + sdx, sy) then return sdx, 0
+            elseif sdy ~= 0 and is_walkable(sx, sy + sdy) then return 0, sdy
+            end
         else
-            return 0, (ody > 0) and 1 or -1
+            if sdy ~= 0 and is_walkable(sx, sy + sdy) then return 0, sdy
+            elseif sdx ~= 0 and is_walkable(sx + sdx, sy) then return sdx, 0
+            end
         end
+        return 0, 0
     end
 
     -- Reconstruct path: trace back from goal to find first step after start

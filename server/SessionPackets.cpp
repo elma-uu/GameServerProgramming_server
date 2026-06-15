@@ -263,12 +263,27 @@ bool SESSION::processPacket(unsigned char* p)
 		short py = (dy == 0) ? 1 : 0;
 
 		// Hit area: range-1 straight + range-1 perp± + range-2 straight
-		const short tiles[5][2] = {
+		const short tiles[4][2] = {
 			{ (short)(mX + dx),      (short)(mY + dy)      }, // r1 straight
 			{ (short)(mX + dx + px), (short)(mY + dy + py) }, // r1 perp+
 			{ (short)(mX + dx - px), (short)(mY + dy - py) }, // r1 perp-
 			{ (short)(mX + dx*2),    (short)(mY + dy*2)    }, // r2 straight
 		};
+
+		// Dungeon: boss parts are not in world sectors — use bounding-box lookup
+		if (mDungeonInstanceId >= 0) {
+			auto inst = DungeonManager::GetInstance(mDungeonInstanceId);
+			if (inst) {
+				int damage  = 10 + static_cast<int>(mStr) * 3;
+				bool isCrit = (rand() % 100) < static_cast<int>(mLuk);
+				if (isCrit) damage = damage * 3 / 2;
+				for (int i = 0; i < 4; ++i) {
+					auto part = inst->FindHittablePartAt(tiles[i][0], tiles[i][1]);
+					if (part) { inst->OnPartDamage(part, mId, damage, isCrit); break; }
+				}
+			}
+			break;
+		}
 
 		int target_id = -1;
 		for (int i = 0; i < 4 && target_id == -1; ++i) {
@@ -405,6 +420,26 @@ bool SESSION::processPacket(unsigned char* p)
 
 		static const short dx_off[] = { -1,  0,  1, -1, 1, -1, 0, 1 };
 		static const short dy_off[] = { -1, -1, -1,  0, 0,  1, 1, 1 };
+
+		// Dungeon: boss parts are not in world sectors — use bounding-box lookup
+		if (mDungeonInstanceId >= 0) {
+			auto inst = DungeonManager::GetInstance(mDungeonInstanceId);
+			if (inst) {
+				int damage  = 15 + static_cast<int>(mIntl) * 4;
+				bool isCrit = (rand() % 100) < static_cast<int>(mLuk);
+				if (isCrit) damage = damage * 3 / 2;
+				std::shared_ptr<SESSION> alreadyHit;
+				for (int i = 0; i < 8; ++i) {
+					auto part = inst->FindHittablePartAt(
+						(short)(mX + dx_off[i]), (short)(mY + dy_off[i]));
+					if (part && part != alreadyHit) {
+						inst->OnPartDamage(part, mId, damage, isCrit);
+						alreadyHit = part;  // hit each part at most once per AOE
+					}
+				}
+			}
+			break;
+		}
 
 		std::vector<int> targets;
 		for (int i = 0; i < 8; ++i) {

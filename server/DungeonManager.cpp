@@ -46,3 +46,20 @@ std::shared_ptr<DungeonInstance> DungeonManager::GetInstance(int instance_id)
     std::lock_guard<std::mutex> lock(sMutex);
     return sSlots[instance_id].is_active ? sSlots[instance_id].instance : nullptr;
 }
+
+void DungeonManager::ReleaseSlot(int instance_id)
+{
+    if (instance_id < 0 || instance_id >= MAX_DUNGEON_INSTANCES) return;
+    std::shared_ptr<DungeonInstance> inst;  // keep alive until after lock release
+    {
+        std::lock_guard<std::mutex> lock(sMutex);
+        if (!sSlots[instance_id].is_active) return;
+        sPartyToInstance.erase(sSlots[instance_id].party_id);
+        inst = std::move(sSlots[instance_id].instance);  // transfer ref, don't destroy under lock
+        sSlots[instance_id] = {};
+    }
+    // inst goes out of scope here. If the calling thread is the dungeon thread that
+    // captured shared_from_this() in its lambda, this just decrements the ref count;
+    // the lambda's own ref keeps the object alive until ThreadFunc returns.
+    // If it's the last ref (external call), ~DungeonInstance joins the finished thread.
+}

@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "DungeonInstance.h"
+#include "DungeonManager.h"
 #include "SESSION.h"
 #include "protocol_2026.h"
 
@@ -60,14 +61,25 @@ void DungeonInstance::Start()
                       VISUAL_BOSS_BELIAL_HAND_R, 3000);
 
     mRunning = true;
-    mThread  = std::thread(&DungeonInstance::ThreadFunc, this);
+    // Capture shared_from_this so the instance outlives the thread even if the
+    // DungeonManager slot is released from within ThreadFunc (CheckWipe pattern).
+    auto self = shared_from_this();
+    mThread = std::thread([this, self]() { ThreadFunc(); });
 }
 
 void DungeonInstance::Stop()
 {
     mRunning = false;
-    if (mThread.joinable())
-        mThread.join();
+    if (mThread.joinable()) {
+        // When CheckWipe clears the DungeonManager slot, the lambda's self ref becomes
+        // the last reference. On thread exit the lambda destructor calls ~DungeonInstance
+        // → Stop() from within its own thread. join() from self = system_error / deadlock.
+        // Detect this case and detach instead (thread already finished by now).
+        if (mThread.get_id() == std::this_thread::get_id())
+            mThread.detach();
+        else
+            mThread.join();
+    }
     if (mLua) { lua_close(mLua); mLua = nullptr; }
 }
 
@@ -214,11 +226,14 @@ void DungeonInstance::BroadcastHandMoveTo(std::shared_ptr<SESSION> hand,
     BroadcastToAll(&pkt, pkt.size);
 }
 
-void DungeonInstance::BroadcastLaserFire(short centerY, int durationMs)
+void DungeonInstance::BroadcastLaserFire(std::shared_ptr<SESSION> hand,
+                                         short centerY, int durationMs)
 {
+    if (!hand) return;
     S2C_LaserFire pkt;
     pkt.size        = sizeof(S2C_LaserFire);
     pkt.type        = S2C_LASER_FIRE;
+    pkt.object_id   = hand->mId;
     pkt.center_y    = centerY;
     pkt.duration_ms = durationMs;
     BroadcastToAll(&pkt, pkt.size);
@@ -236,7 +251,7 @@ void DungeonInstance::BroadcastHandAnimState(std::shared_ptr<SESSION> hand,
     BroadcastToAll(&pkt, pkt.size);
 }
 
-void DungeonInstance::ApplyLaserDamage(short centerY)
+void DungeonInstance::ApplyLaserDamage(short centerYL, short centerYR)
 {
     // Copy player list under lock, then release before sending
     std::vector<std::shared_ptr<SESSION>> snapshot;
@@ -246,8 +261,10 @@ void DungeonInstance::ApplyLaserDamage(short centerY)
     }
 
     for (auto& p : snapshot) {
-        if (!p || p->mIsDead) continue;
-        if (std::abs((int)p->mY - (int)centerY) > 1) continue;
+        if (!p || p->mIsDead || p->mHp <= 0) continue;
+        bool inRangeL = std::abs((int)p->mY - (int)centerYL) <= 1;
+        bool inRangeR = std::abs((int)p->mY - (int)centerYR) <= 1;
+        if (!inRangeL && !inRangeR) continue;
 
         int damage = LASER_DAMAGE;
         if (p->mInvincible) damage = 0;
@@ -277,13 +294,252 @@ void DungeonInstance::ApplyLaserDamage(short centerY)
             BroadcastToAll(&dn, dn.size);
         }
     }
+
+    CheckWipe();
+}
+
+// ---------------------------------------------------------------------------
+// Boss hitbox helpers (called from IOCP worker threads)
+// ---------------------------------------------------------------------------
+
+std::shared_ptr<SESSION> DungeonInstance::FindHittablePartAt(short tx, short ty)
+{
+    // Boss head: rendered as 9×9 tiles → ±4 tile radius
+    if (mBoss && mBoss->mHp > 0 &&
+        std::abs((int)tx - (int)mBoss->mX) <= 4 &&
+        std::abs((int)ty - (int)mBoss->mY) <= 4)
+        return mBoss;
+    // Left hand: rendered as 4×4 tiles → ±2 tile radius
+    if (mHandL && mHandL->mHp > 0 &&
+        std::abs((int)tx - (int)mHandL->mX) <= 2 &&
+        std::abs((int)ty - (int)mHandL->mY) <= 2)
+        return mHandL;
+    // Right hand: same
+    if (mHandR && mHandR->mHp > 0 &&
+        std::abs((int)tx - (int)mHandR->mX) <= 2 &&
+        std::abs((int)ty - (int)mHandR->mY) <= 2)
+        return mHandR;
+    return nullptr;
+}
+
+void DungeonInstance::OnPartDamage(std::shared_ptr<SESSION> part,
+                                   int attackerId, int damage, bool isCrit)
+{
+    if (!part) return;
+
+    // Protect HP modification under mMutex to prevent concurrent IOCP threads from
+    // racing on the same boss part's HP (read-modify-write must be atomic).
+    bool partDied = false;
+    int  newHp    = 0;
+    {
+        std::lock_guard<std::mutex> lock(mMutex);
+        if (part->mHp <= 0) return;  // already dead
+        part->mHp -= damage;
+        if (part->mHp < 0) part->mHp = 0;
+        newHp    = part->mHp;
+        partDied = (newHp == 0);
+    }
+
+    // Damage number (mMutex released — BroadcastToAll will re-acquire it)
+    {
+        S2C_DamageNumber dn;
+        dn.size        = sizeof(S2C_DamageNumber);
+        dn.type        = S2C_DAMAGE_NUMBER;
+        dn.attacker_id = attackerId;
+        dn.object_id   = part->mId;
+        dn.damage      = damage;
+        dn.is_crit     = isCrit ? 1 : 0;
+        BroadcastToAll(&dn, dn.size);
+    }
+
+    if (!partDied) {
+        S2C_StatusChange sc;
+        sc.size      = sizeof(S2C_StatusChange);
+        sc.type      = S2C_STATUS_CHANGE;
+        sc.object_id = part->mId;
+        sc.hp        = newHp;
+        sc.max_hp    = part->mMaxHp;
+        sc.exp       = part->mExp;
+        sc.level     = part->mLevel;
+        BroadcastToAll(&sc, sc.size);
+    } else {
+        S2C_RemoveObject ro;
+        ro.size      = sizeof(S2C_RemoveObject);
+        ro.type      = S2C_REMOVE_OBJECT;
+        ro.object_id = part->mId;
+        BroadcastToAll(&ro, ro.size);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: sword fall
+// ---------------------------------------------------------------------------
+
+void DungeonInstance::BroadcastSwordFall(int durationMs)
+{
+    S2C_SwordFall pkt;
+    pkt.size            = sizeof(S2C_SwordFall);
+    pkt.type            = S2C_SWORD_FALL;
+    pkt.fall_duration_ms = durationMs;
+    BroadcastToAll(&pkt, pkt.size);
+}
+
+void DungeonInstance::UpdateSwordFall(std::chrono::steady_clock::time_point now)
+{
+    switch (mSwordFallState) {
+
+    case SwordFallState::IDLE:
+        if (now < mSwordFallTimer) break;
+        BroadcastSwordFall(SWORD_FALL_DURATION_MS);
+        mSwordFallStart = now;
+        mSwordLastRow   = -1;
+        mSwordFallState = SwordFallState::FALLING;
+        break;
+
+    case SwordFallState::FALLING:
+        {
+            long long elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - mSwordFallStart).count();
+
+            // Which dungeon row the sword center is currently at
+            int currentRow = (int)((float)elapsed / SWORD_FALL_DURATION_MS * DUNGEON_SIZE);
+            if (currentRow >= DUNGEON_SIZE) currentRow = DUNGEON_SIZE - 1;
+
+            // Apply damage for each newly reached row
+            for (int row = mSwordLastRow + 1; row <= currentRow; ++row)
+                ApplySwordDamage((short)row);
+            mSwordLastRow = currentRow;
+
+            if (elapsed >= SWORD_FALL_DURATION_MS) {
+                mSwordFallState = SwordFallState::IDLE;
+                mSwordFallTimer = now + std::chrono::milliseconds(SWORD_FALL_INTERVAL_MS);
+            }
+        }
+        break;
+    }
+}
+
+void DungeonInstance::ApplySwordDamage(short swordRow)
+{
+    std::vector<std::shared_ptr<SESSION>> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(mMutex);
+        snapshot = mPlayers;
+    }
+
+    bool anyDamaged = false;
+    for (auto& p : snapshot) {
+        if (!p || p->mIsDead || p->mHp <= 0) continue;
+        // Sword X columns: 3, 6, 9, ... (p->mX > 0 && p->mX % SWORD_X_STEP == 0)
+        if (p->mX == 0 || p->mX % SWORD_X_STEP != 0) continue;
+        if (std::abs((int)p->mY - (int)swordRow) > 1) continue;
+
+        int damage = SWORD_DAMAGE;
+        if (p->mInvincible) damage = 0;
+        p->mHp -= damage;
+        if (p->mHp < 0) p->mHp = 0;
+
+        S2C_StatusChange sc;
+        sc.size      = sizeof(S2C_StatusChange);
+        sc.type      = S2C_STATUS_CHANGE;
+        sc.object_id = p->mId;
+        sc.hp        = p->mHp;
+        sc.max_hp    = p->mMaxHp;
+        sc.exp       = p->mExp;
+        sc.level     = p->mLevel;
+        BroadcastToAll(&sc, sc.size);
+
+        if (damage > 0 && mBoss) {
+            S2C_DamageNumber dn;
+            dn.size        = sizeof(S2C_DamageNumber);
+            dn.type        = S2C_DAMAGE_NUMBER;
+            dn.attacker_id = mBoss->mId;
+            dn.object_id   = p->mId;
+            dn.damage      = damage;
+            dn.is_crit     = 0;
+            BroadcastToAll(&dn, dn.size);
+        }
+        anyDamaged = true;
+    }
+
+    if (anyDamaged) CheckWipe();
+}
+
+// ---------------------------------------------------------------------------
+// Party wipe: send all dungeon players back to world spawn then close the slot.
+// Must be called from the dungeon thread (which holds shared_from_this in its lambda).
+// ---------------------------------------------------------------------------
+
+void DungeonInstance::CheckWipe()
+{
+    // Snapshot + check under lock
+    std::vector<std::shared_ptr<SESSION>> dead;
+    {
+        std::lock_guard<std::mutex> lock(mMutex);
+        bool anyAlive = false;
+        for (auto& p : mPlayers)
+            if (p && p->mHp > 0) { anyAlive = true; break; }
+        if (anyAlive) return;
+        dead = mPlayers;
+        mPlayers.clear();
+    }
+
+    if (dead.empty()) return;
+
+    constexpr short WORLD_SPAWN_X = 1000;
+    constexpr short WORLD_SPAWN_Y = 1000;
+
+    for (auto& p : dead) {
+        if (!p) continue;
+
+        // Restore and relocate
+        p->mHp              = p->mMaxHp;
+        p->mX               = WORLD_SPAWN_X;
+        p->mY               = WORLD_SPAWN_Y;
+        p->mDungeonInstanceId = -1;
+        p->mIsDead          = false;
+
+        // Re-insert into world sector
+        int sid = get_sector_id(WORLD_SPAWN_X, WORLD_SPAWN_Y);
+        p->mSector_id = sid;
+        sectors[sid].insert(p->mId);
+
+        // Tell client to exit dungeon
+        {
+            S2C_DungeonEnter pkt;
+            pkt.size        = sizeof(S2C_DungeonEnter);
+            pkt.type        = S2C_DUNGEON_ENTER;
+            pkt.entered     = 0;
+            pkt.instance_id = -1;
+            pkt.x           = WORLD_SPAWN_X;
+            pkt.y           = WORLD_SPAWN_Y;
+            p->doSend(pkt.size, reinterpret_cast<char*>(&pkt));
+        }
+
+        // Respawn with full HP at world spawn
+        {
+            S2C_Respawn pkt;
+            pkt.size   = sizeof(S2C_Respawn);
+            pkt.type   = S2C_RESPAWN;
+            pkt.hp     = p->mMaxHp;
+            pkt.max_hp = p->mMaxHp;
+            pkt.x      = WORLD_SPAWN_X;
+            pkt.y      = WORLD_SPAWN_Y;
+            p->doSend(pkt.size, reinterpret_cast<char*>(&pkt));
+        }
+    }
+
+    // Release the DungeonManager slot so the party can re-enter fresh.
+    // ReleaseSlot does NOT join the thread — the thread holds its own shared_ptr
+    // and will exit naturally when mRunning becomes false.
+    DungeonManager::ReleaseSlot(mInstanceId);
+    mRunning = false;
 }
 
 void DungeonInstance::UpdatePattern()
 {
     if (!mBoss || mBoss->mHp <= 0) return;
 
-    // Determine phase via Lua
     int phase = 1;
     if (mLua) {
         lua_getglobal(mLua, "boss_get_phase");
@@ -298,7 +554,15 @@ void DungeonInstance::UpdatePattern()
     }
 
     auto now = std::chrono::steady_clock::now();
-    if (phase == 1) UpdatePhase1(now);
+    UpdatePhase1(now);  // hand laser pattern — active in both phases
+
+    if (phase >= 2) {
+        if (!mPhase2Started) {
+            mPhase2Started  = true;
+            mSwordFallTimer = now + std::chrono::milliseconds(SWORD_FALL_INTERVAL_MS);
+        }
+        UpdateSwordFall(now);
+    }
 }
 
 void DungeonInstance::UpdatePhase1(std::chrono::steady_clock::time_point now)
@@ -308,39 +572,41 @@ void DungeonInstance::UpdatePhase1(std::chrono::steady_clock::time_point now)
     case BossPatternState::WAIT:
         if (now < mPatTimer) break;
         {
-            // Collect player Y positions
+            // Collect alive player Y positions (skip dead players)
             std::vector<short> ys;
             {
                 std::lock_guard<std::mutex> lock(mMutex);
                 for (auto& p : mPlayers)
-                    if (p) ys.push_back(p->mY);
+                    if (p && !p->mIsDead && p->mHp > 0) ys.push_back(p->mY);
             }
-            if (ys.empty()) break;  // nobody to target — try again next tick
+            if (ys.empty()) break;  // all dead or nobody present — wait
 
-            // Ask Lua to pick a target Y
-            mHandTargetY = DUNGEON_LOCAL_BOSS_Y;
+            // Ask Lua to pick two (possibly different) target Ys
+            mHandTargetYL = DUNGEON_LOCAL_BOSS_Y;
+            mHandTargetYR = DUNGEON_LOCAL_BOSS_Y;
             if (mLua) {
-                lua_getglobal(mLua, "boss_phase1_pick_target");
+                lua_getglobal(mLua, "boss_phase1_pick_two_targets");
                 lua_newtable(mLua);
                 for (int i = 0; i < (int)ys.size(); ++i) {
                     lua_pushinteger(mLua, ys[i]);
                     lua_rawseti(mLua, -2, i + 1);
                 }
                 lua_pushinteger(mLua, (int)ys.size());
-                if (lua_pcall(mLua, 2, 1, 0) == LUA_OK) {
-                    mHandTargetY = (short)lua_tointeger(mLua, -1);
-                    lua_pop(mLua, 1);
+                if (lua_pcall(mLua, 2, 2, 0) == LUA_OK) {
+                    mHandTargetYL = (short)lua_tointeger(mLua, -2);
+                    mHandTargetYR = (short)lua_tointeger(mLua, -1);
+                    lua_pop(mLua, 2);
                 } else {
                     lua_pop(mLua, 1);
                 }
             }
             // Clamp to dungeon bounds
-            mHandTargetY = max((short)0,
-                           min((short)(DUNGEON_SIZE - 1), mHandTargetY));
+            mHandTargetYL = max((short)0, min((short)(DUNGEON_SIZE - 1), mHandTargetYL));
+            mHandTargetYR = max((short)0, min((short)(DUNGEON_SIZE - 1), mHandTargetYR));
 
-            // Move both hands to the target row edges (0.5 s)
-            BroadcastHandMoveTo(mHandL, 0,  mHandTargetY, PAT_MOVE_MS);
-            BroadcastHandMoveTo(mHandR, 29, mHandTargetY, PAT_MOVE_MS);
+            // Left hand → (0, YL),  Right hand → (29, YR)
+            BroadcastHandMoveTo(mHandL, 0,  mHandTargetYL, PAT_MOVE_MS);
+            BroadcastHandMoveTo(mHandR, 29, mHandTargetYR, PAT_MOVE_MS);
 
             mPatState = BossPatternState::MOVING;
             mPatTimer = now + std::chrono::milliseconds(PAT_MOVE_MS);
@@ -359,9 +625,10 @@ void DungeonInstance::UpdatePhase1(std::chrono::steady_clock::time_point now)
 
     case BossPatternState::WINDUP:
         if (now < mPatTimer) break;
-        // Frame 10 reached — fire laser and apply damage
-        BroadcastLaserFire(mHandTargetY, PAT_LASER_HOLD_MS);
-        ApplyLaserDamage(mHandTargetY);
+        // Frame 10 reached — each hand fires its own laser at its target row
+        BroadcastLaserFire(mHandL, mHandTargetYL, PAT_LASER_HOLD_MS);
+        BroadcastLaserFire(mHandR, mHandTargetYR, PAT_LASER_HOLD_MS);
+        ApplyLaserDamage(mHandTargetYL, mHandTargetYR);
 
         mPatState = BossPatternState::ATTACK;
         mPatTimer = now + std::chrono::milliseconds(PAT_LASER_HOLD_MS);

@@ -88,6 +88,7 @@ enum PACKET_TYPE {
 	S2C_HAND_MOVE_TO,	//	Server to Client: smoothly move boss hand to target position
 	S2C_LASER_FIRE,		//	Server to Client: laser fires at dungeon row y (visual + damage zone)
 	S2C_HAND_ANIM_STATE,//	Server to Client: switch boss hand animation state (0=idle 1=attack)
+	S2C_SWORD_FALL,		//	Server to Client: phase 2 swords fall from top to bottom
 };
 
 enum STAT_TYPE : unsigned char {
@@ -397,10 +398,11 @@ struct S2C_HandMoveTo {
 	int           move_ms;
 };
 
-// Laser fires at dungeon row center_y; damages tiles center_y-1 .. center_y+1
+// Laser fires from a specific hand at dungeon row center_y
 struct S2C_LaserFire {
 	unsigned char size;
 	PACKET_TYPE   type;
+	int           object_id;   // which hand fired (DUNGEON_HAND_L/R_ID_START + instance)
 	short         center_y;    // tile row of laser center
 	int           duration_ms; // visual effect duration
 };
@@ -411,6 +413,13 @@ struct S2C_HandAnimState {
 	PACKET_TYPE   type;
 	int           object_id;
 	unsigned char anim_state;
+};
+
+// Phase 2: swords fall at x=3,6,9,... from row 0 to DUNGEON_SIZE-1
+struct S2C_SwordFall {
+	unsigned char size;
+	PACKET_TYPE   type;
+	int           fall_duration_ms;
 };
 
 #pragma pack(pop) // Restore default packing

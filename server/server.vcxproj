@@ -167,6 +167,7 @@
     <ClInclude Include="SESSION.h" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="boss_belial.lua" />
     <None Include="npc_ai.lua" />
     <None Include="packages.config" />
     <None Include="quests.lua" />

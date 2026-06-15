@@ -20,6 +20,12 @@ public:
     // Returns a shared_ptr to the live instance, or nullptr.
     static std::shared_ptr<DungeonInstance> GetInstance(int instance_id);
 
+    // Free the slot metadata WITHOUT joining the thread.
+    // Safe to call from within the instance's own thread because the thread
+    // holds its own shared_ptr (captured in Start()). The instance is destroyed
+    // only after the thread exits and that captured reference is released.
+    static void ReleaseSlot(int instance_id);
+
     // Dungeon-local tile spawn position for party members (same for every instance).
     static constexpr short SpawnX() { return DUNGEON_LOCAL_SPAWN_X; }
     static constexpr short SpawnY() { return DUNGEON_LOCAL_SPAWN_Y; }

@@ -31,13 +31,20 @@ constexpr int PAT_INITIAL_MS   = 3000;         // delay before first pattern
 
 constexpr int LASER_DAMAGE     = 500;          // HP per laser hit
 
+// Phase 2 sword fall
+constexpr int SWORD_X_STEP           = 3;     // sword every 3 tiles (x=3,6,9,...)
+constexpr int SWORD_DAMAGE           = 300;
+constexpr int SWORD_FALL_INTERVAL_MS = 10000; // 10s between falls
+constexpr int SWORD_FALL_DURATION_MS = 3000;  // fall animation duration
+
 // WINDUP: attack anim playing, frames 0-9 (no laser yet)
 // ATTACK: laser fires at frame 10, damage applied
 enum class BossPatternState { WAIT, MOVING, WINDUP, ATTACK, RECOVER };
+enum class SwordFallState   { IDLE, FALLING };
 
 // One dungeon instance: owns a boss NPC, a player list, and its own thread.
 // All visibility inside the dungeon is managed here directly (no world sectors).
-class DungeonInstance {
+class DungeonInstance : public std::enable_shared_from_this<DungeonInstance> {
 public:
     DungeonInstance(int instance_id, int party_id);
     ~DungeonInstance();
@@ -73,9 +80,25 @@ private:
     void UpdatePhase1(std::chrono::steady_clock::time_point now);
     void BroadcastToAll(const void* pkt, int sz);
     void BroadcastHandMoveTo(std::shared_ptr<SESSION> hand, short tx, short ty, int ms);
-    void BroadcastLaserFire(short centerY, int durationMs);
+    void BroadcastLaserFire(std::shared_ptr<SESSION> hand, short centerY, int durationMs);
     void BroadcastHandAnimState(std::shared_ptr<SESSION> hand, unsigned char state);
-    void ApplyLaserDamage(short centerY);
+    void ApplyLaserDamage(short centerYL, short centerYR);
+
+    // Phase 2: sword fall pattern
+    void UpdateSwordFall(std::chrono::steady_clock::time_point now);
+    void BroadcastSwordFall(int durationMs);
+    void ApplySwordDamage(short swordRow);
+
+    // Attack hitbox helpers — called from IOCP worker threads (acquire mMutex for reads)
+public:
+    // Returns the boss/hand SESSION that includes tile (tx, ty) in its hitbox, or nullptr.
+    std::shared_ptr<SESSION> FindHittablePartAt(short tx, short ty);
+    // Apply player attack damage to a boss part. Broadcasts DamageNumber + StatusChange/Remove.
+    void OnPartDamage(std::shared_ptr<SESSION> part, int attackerId, int damage, bool isCrit);
+private:
+    // Called after laser damage: teleport all dead players to world spawn and close slot.
+    // Safe to call from the dungeon thread (the thread holds its own shared_ptr reference).
+    void CheckWipe();
 
     int  mInstanceId;
     int  mPartyId;
@@ -92,8 +115,16 @@ private:
     // Per-instance Lua state (not shared with IOCP worker threads)
     lua_State*         mLua      = nullptr;
 
-    // Boss pattern state machine
+    // Phase 1 pattern state machine
     BossPatternState   mPatState = BossPatternState::WAIT;
     std::chrono::steady_clock::time_point mPatTimer{};
-    short              mHandTargetY = DUNGEON_LOCAL_BOSS_Y;
+    short              mHandTargetYL = DUNGEON_LOCAL_BOSS_Y;
+    short              mHandTargetYR = DUNGEON_LOCAL_BOSS_Y;
+
+    // Phase 2 sword fall state
+    bool               mPhase2Started  = false;
+    SwordFallState     mSwordFallState = SwordFallState::IDLE;
+    std::chrono::steady_clock::time_point mSwordFallTimer{};
+    std::chrono::steady_clock::time_point mSwordFallStart{};
+    int                mSwordLastRow   = -1;
 };

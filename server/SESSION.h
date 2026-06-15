@@ -50,6 +50,9 @@ public:
 	// Economy
 	int mGold;
 
+	// Combat (NPC only)
+	int mAttackTick;   // ticks until next attack (0 = ready, counts down per doNpcMove call)
+
 public:
 
 	SESSION();
@@ -68,6 +71,7 @@ public:
 	void sendStatInfo();
 	void sendGoldUpdate();
 	void sendBuyResult(bool success, ITEM_TYPE item, int newHp, short newX, short newY);
+	void sendRespawn();
 	bool processPacket(unsigned char* p);
 
 	// call this whenever the player levels up to grant stat points

@@ -66,6 +66,7 @@ SESSION::SESSION(int id, bool isPlayer)
 	mStr = 5; mIntl = 5; mDex = 5; mLuk = 5; mStatPoints = 0;
 	mTargetId = -1; mChaseRemaining = 0;
 	mSpawnX = 1000; mSpawnY = 1000; mIsDead = false; mIsStationary = false;
+	mAttackTick = 0;
 	mPartyId = -1;
 	mVisualId = 0;
 	mGold = 0;
@@ -895,6 +896,9 @@ void SESSION::doNpcMove()
 {
 	if (mIsDead || mIsStationary) return;
 
+	// Attack cooldown: each doNpcMove call = 500 ms; cooldown 2 ticks = 1 second
+	if (mAttackTick > 0) mAttackTick--;
+
 	thread_local std::mt19937 rng(std::random_device{}());
 	thread_local std::uniform_int_distribution<int> dir_dist(0, 3);
 
@@ -915,6 +919,64 @@ void SESSION::doNpcMove()
 				mTargetId = -1;
 				mChaseRemaining = 0;
 			} else {
+				// Attack if within 1 tile (Chebyshev distance) and cooldown ready
+				if (abs(mX - tgt->mX) <= 1 && abs(mY - tgt->mY) <= 1) {
+					if (mAttackTick == 0) {
+						int damage = max(1, (int)mLevel * 2);
+						tgt->mHp -= damage;
+
+						// Broadcast damage number to all players watching the target + target itself
+						{
+							S2C_DamageNumber dn;
+							dn.size        = sizeof(S2C_DamageNumber);
+							dn.type        = S2C_DAMAGE_NUMBER;
+							dn.attacker_id = mId;
+							dn.object_id   = tgt->mId;
+							dn.damage      = damage;
+							dn.is_crit     = 0;
+							tgt->m_visible_mutex.lock();
+							auto watchers = tgt->m_visible_players;
+							tgt->m_visible_mutex.unlock();
+							for (int pid : watchers) {
+								auto pit = clients.find(pid);
+								if (pit == clients.end()) continue;
+								auto pl = pit->second;
+								if (!pl || pl->mState != CS_PLAYING) continue;
+								pl->doSend(dn.size, reinterpret_cast<char*>(&dn));
+							}
+							tgt->doSend(dn.size, reinterpret_cast<char*>(&dn));
+						}
+
+						mAttackTick = 2;
+
+						if (tgt->mHp <= 0) {
+							// Player died: respawn at town center
+							tgt->mHp = tgt->mMaxHp;
+							sectors[tgt->mSector_id].erase(tgt->mId);
+							tgt->mX = 1000; tgt->mY = 1000;
+							tgt->mSector_id = get_sector_id(tgt->mX, tgt->mY);
+							sectors[tgt->mSector_id].insert(tgt->mId);
+							tgt->sendRespawn();
+							// Target is now in safe zone; stop chasing
+							mTargetId = -1;
+							mChaseRemaining = 0;
+						} else {
+							// Send HP update to the attacked player
+							S2C_StatusChange sc;
+							sc.size      = sizeof(S2C_StatusChange);
+							sc.type      = S2C_STATUS_CHANGE;
+							sc.object_id = tgt->mId;
+							sc.hp        = tgt->mHp;
+							sc.max_hp    = tgt->mMaxHp;
+							sc.exp       = tgt->mExp;
+							sc.level     = tgt->mLevel;
+							tgt->doSend(sc.size, reinterpret_cast<char*>(&sc));
+						}
+					}
+					return; // In attack range: don't move (attacking or waiting for cooldown)
+				}
+
+				// Not in attack range: move toward target via A*
 				short dx = 0, dy = 0;
 				if (LuaManager::GetNextStep(mX, mY, tgt->mX, tgt->mY, dx, dy)) {
 					newX = mX + dx;
@@ -1132,6 +1194,18 @@ void SESSION::sendGoldUpdate()
 	pkt.size = sizeof(S2C_GoldUpdate);
 	pkt.type = S2C_GOLD_UPDATE;
 	pkt.gold = mGold;
+	doSend(pkt.size, reinterpret_cast<char*>(&pkt));
+}
+
+void SESSION::sendRespawn()
+{
+	S2C_Respawn pkt;
+	pkt.size   = sizeof(S2C_Respawn);
+	pkt.type   = S2C_RESPAWN;
+	pkt.hp     = mHp;
+	pkt.max_hp = mMaxHp;
+	pkt.x      = mX;
+	pkt.y      = mY;
 	doSend(pkt.size, reinterpret_cast<char*>(&pkt));
 }
 

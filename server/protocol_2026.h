@@ -60,6 +60,8 @@ enum PACKET_TYPE {
 	C2S_BUY_ITEM,		//	Client to Server: buy item from shop NPC
 	S2C_BUY_RESULT,		//	Server to Client: purchase result (success, gold, effect)
 	S2C_GOLD_UPDATE,	//	Server to Client: gold balance changed (kill reward etc.)
+
+	S2C_RESPAWN,		//	Server to Client: player died and respawned at town
 };
 
 enum STAT_TYPE : unsigned char {
@@ -300,6 +302,15 @@ struct S2C_GoldUpdate {
 	unsigned char size;
 	PACKET_TYPE   type;
 	int           gold;
+};
+
+struct S2C_Respawn {
+	unsigned char size;
+	PACKET_TYPE   type;
+	int           hp;
+	int           max_hp;
+	short         x;
+	short         y;
 };
 
 #pragma pack(pop) // Restore default packing

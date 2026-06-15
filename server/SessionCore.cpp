@@ -109,6 +109,12 @@ void SESSION::onMonsterKilled()
 
 void SESSION::enterWorld()
 {
+	// Dungeon state is not persisted — if saved inside a dungeon, spawn at town
+	if (mX >= DUNGEON_BASE_X) {
+		mX = 1000; mY = 1000;
+		mDungeonInstanceId = -1;
+	}
+
 	int initial_sector_id = get_sector_id(mX, mY);
 	sectors[initial_sector_id].insert(mId);
 	mSector_id = initial_sector_id;

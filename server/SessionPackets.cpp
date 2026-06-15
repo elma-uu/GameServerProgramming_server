@@ -5,6 +5,22 @@
 #include "PartyManager.h"
 #include "DungeonManager.h"
 
+// After teleporting a player to a new position (sector + mX/mY already updated,
+// mDungeonInstanceId already set), send AddObject for all newly visible entities.
+static void reEstablishVisibility(std::shared_ptr<SESSION> self, int mid)
+{
+    std::unordered_set<int> new_v;
+    self->get_visible_players_from_sectors(new_v);
+    for (int vid : new_v) {
+        self->sendAddPlayer(vid);
+        auto pl = clients.find(vid);
+        if (pl != clients.end() && pl->second) pl->second->sendAddPlayer(mid);
+    }
+    std::unordered_set<int> new_v_npcs;
+    self->get_visible_npcs_from_sectors(new_v_npcs);
+    for (int nid : new_v_npcs) self->sendAddNpc(nid);
+}
+
 // Send RemoveObject for every currently-visible NPC/player, then clear the visibility
 // sets.  Call before forcibly teleporting a player so no ghost objects remain.
 static void clearVisibilityBeforeTeleport(std::shared_ptr<SESSION> member, int mid)
@@ -222,11 +238,23 @@ bool SESSION::processPacket(unsigned char* p)
 		case RIGHT: dx =  1; break;
 		}
 
+		// Perpendicular axis: for horizontal attack → Y offset; for vertical → X offset
+		short px = (dx == 0) ? 1 : 0;
+		short py = (dy == 0) ? 1 : 0;
+
+		// Hit area: range-1 straight + range-1 perp± + range-2 straight
+		const short tiles[5][2] = {
+			{ (short)(mX + dx),      (short)(mY + dy)      }, // r1 straight
+			{ (short)(mX + dx + px), (short)(mY + dy + py) }, // r1 perp+
+			{ (short)(mX + dx - px), (short)(mY + dy - py) }, // r1 perp-
+			{ (short)(mX + dx*2),    (short)(mY + dy*2)    }, // r2 straight
+		};
+
 		int target_id = -1;
-		for (int r = 1; r <= 2 && target_id == -1; ++r) {
-			short tx = mX + static_cast<short>(dx * r);
-			short ty = mY + static_cast<short>(dy * r);
-			if (tx < 0 || tx >= WORLD_WIDTH || ty < 0 || ty >= WORLD_HEIGHT) break;
+		for (int i = 0; i < 4 && target_id == -1; ++i) {
+			short tx = tiles[i][0];
+			short ty = tiles[i][1];
+			if (tx < 0 || tx >= WORLD_WIDTH || ty < 0 || ty >= WORLD_HEIGHT) continue;
 			int sid = get_sector_id(tx, ty);
 			auto sit = sectors.find(sid);
 			if (sit == sectors.end()) continue;
@@ -526,7 +554,7 @@ bool SESSION::processPacket(unsigned char* p)
 			// If in a dungeon, leave it first
 			if (mDungeonInstanceId >= 0) {
 				int old_inst = mDungeonInstanceId;
-				mDungeonInstanceId = -1;
+				mDungeonInstanceId = -1;   // set before clearVisibility
 				bool still_occupied = false;
 				for (auto& [pid, _] : g_player_ids) {
 					if (pid == mId) continue;
@@ -537,12 +565,14 @@ bool SESSION::processPacket(unsigned char* p)
 				}
 				if (!still_occupied) DungeonManager::CloseInstance(old_inst);
 			}
-			clearVisibilityBeforeTeleport(clients[mId], mId);
+			auto self = clients[mId];
+			if (self) clearVisibilityBeforeTeleport(self, mId);
 			sectors[mSector_id].erase(mId);
 			mX = 1000; mY = 1000;
 			mSector_id = get_sector_id(mX, mY);
 			sectors[mSector_id].insert(mId);
 			sendUseItemResult(true, item, mScrollCount, 0, mX, mY);
+			if (self) reEstablishVisibility(self, mId);
 		}
 	}
 	break;
@@ -689,7 +719,7 @@ bool SESSION::processPacket(unsigned char* p)
 		// ── Exit: player is already in a dungeon ──────────────────────────────
 		if (mDungeonInstanceId >= 0) {
 			int old_inst = mDungeonInstanceId;
-			mDungeonInstanceId = -1;
+			mDungeonInstanceId = -1;   // set before clearVisibility so NPC filter works
 
 			auto self = clients[mId];
 			if (self) clearVisibilityBeforeTeleport(self, mId);
@@ -699,6 +729,7 @@ bool SESSION::processPacket(unsigned char* p)
 			mSector_id = get_sector_id(mX, mY);
 			sectors[mSector_id].insert(mId);
 
+			// Tell client about new position first, then re-establish visibility
 			S2C_DungeonEnter pkt;
 			pkt.size        = sizeof(S2C_DungeonEnter);
 			pkt.type        = S2C_DUNGEON_ENTER;
@@ -707,6 +738,8 @@ bool SESSION::processPacket(unsigned char* p)
 			pkt.x           = mX;
 			pkt.y           = mY;
 			doSend(pkt.size, reinterpret_cast<char*>(&pkt));
+
+			if (self) reEstablishVisibility(self, mId);
 
 			// Close instance if no other party member remains inside
 			bool still_occupied = false;
@@ -750,9 +783,9 @@ bool SESSION::processPacket(unsigned char* p)
 			clearVisibilityBeforeTeleport(member, mid);
 
 			sectors[member->mSector_id].erase(mid);
-			member->mX          = spawn_x;
-			member->mY          = spawn_y;
-			member->mSector_id  = get_sector_id(spawn_x, spawn_y);
+			member->mX                 = spawn_x;
+			member->mY                 = spawn_y;
+			member->mSector_id         = get_sector_id(spawn_x, spawn_y);
 			sectors[member->mSector_id].insert(mid);
 			member->mDungeonInstanceId = inst_id;
 
@@ -764,6 +797,15 @@ bool SESSION::processPacket(unsigned char* p)
 			pkt.x           = spawn_x;
 			pkt.y           = spawn_y;
 			member->doSend(pkt.size, reinterpret_cast<char*>(&pkt));
+		}
+
+		// Second pass: establish mutual visibility between all members now in the dungeon
+		for (int mid : members) {
+			auto mit = clients.find(mid);
+			if (mit == clients.end() || !mit->second) continue;
+			std::shared_ptr<SESSION> member = mit->second;
+			if (member->mDungeonInstanceId != inst_id) continue;
+			reEstablishVisibility(member, mid);
 		}
 
 		std::cout << "[Dungeon] Party " << mPartyId << " entered instance " << inst_id

@@ -14,7 +14,9 @@ void disconnect(int key)
 		if (cla->is_player && cla->mState == CS_PLAYING && cla->mUsername[0] != '\0') {
 			PlayerSaveData sd = {};
 			strncpy_s(sd.username, cla->mUsername, MAX_NAME_LEN);
-			sd.x          = cla->mX;   sd.y          = cla->mY;
+			// Save town position if disconnected inside a dungeon
+			sd.x = (cla->mDungeonInstanceId >= 0) ? 1000 : cla->mX;
+			sd.y = (cla->mDungeonInstanceId >= 0) ? 1000 : cla->mY;
 			sd.hp         = cla->mHp;  sd.max_hp     = cla->mMaxHp;
 			sd.exp        = cla->mExp; sd.level       = cla->mLevel;
 			sd.str        = cla->mStr; sd.intl        = cla->mIntl;

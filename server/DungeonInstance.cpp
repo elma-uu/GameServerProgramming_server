@@ -42,15 +42,15 @@ void DungeonInstance::Start()
                       VISUAL_BOSS_BELIAL, 5000);
     mBoss->mExp = 5000ULL;
 
-    // Hands: 1 tile below head, ±1 tile left/right
+    // Hands: 1 tile below head, ±6 tiles left/right
     mHandL = MakePart(DUNGEON_HAND_L_ID_START + mInstanceId, mInstanceId,
                       "",
-                      (short)(DUNGEON_LOCAL_BOSS_X - 1), (short)(DUNGEON_LOCAL_BOSS_Y + 1),
+                      (short)(DUNGEON_LOCAL_BOSS_X - 6), (short)(DUNGEON_LOCAL_BOSS_Y + 1),
                       VISUAL_BOSS_BELIAL_HAND_L, 3000);
 
     mHandR = MakePart(DUNGEON_HAND_R_ID_START + mInstanceId, mInstanceId,
                       "",
-                      (short)(DUNGEON_LOCAL_BOSS_X + 1), (short)(DUNGEON_LOCAL_BOSS_Y + 1),
+                      (short)(DUNGEON_LOCAL_BOSS_X + 8), (short)(DUNGEON_LOCAL_BOSS_Y + 1),
                       VISUAL_BOSS_BELIAL_HAND_R, 3000);
 
     mRunning = true;

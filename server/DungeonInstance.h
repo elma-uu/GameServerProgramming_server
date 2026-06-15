@@ -56,6 +56,6 @@ private:
     std::mutex mMutex;
     std::vector<std::shared_ptr<SESSION>> mPlayers;
     std::shared_ptr<SESSION>              mBoss;
-    std::shared_ptr<SESSION>              mHandL;  // left hand  (tile boss-1, boss+1)
-    std::shared_ptr<SESSION>              mHandR;  // right hand (tile boss+1, boss+1)
+    std::shared_ptr<SESSION>              mHandL;  // left hand  (tile boss-6, boss+1)
+    std::shared_ptr<SESSION>              mHandR;  // right hand (tile boss+6, boss+1)
 };

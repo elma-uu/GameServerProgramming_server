@@ -3,6 +3,11 @@
 #include "EXP_OVER.h"
 #include "Database.h"
 #include "LuaManager.h"
+#include "MapData.h"
+
+// MapData globals
+unsigned char g_map[MAP_ROWS][MAP_COLS] = {};
+bool          g_map_loaded = false;
 
 // Thread functions defined in their own translation units
 void worker_thread();
@@ -156,6 +161,18 @@ int main()
 		std::cout << "Warning: Lua AI unavailable, NPCs will only wander.\n";
 	}
 	LuaManager::LoadScript("quests.lua");
+
+	// Load world map (collision)
+	const char* mapPaths[] = {
+		"Resource\\Map\\map.txt",
+		"..\\Resource\\Map\\map.txt",
+		"..\\..\\Resource\\Map\\map.txt",
+	};
+	bool mapOk = false;
+	for (const char* p : mapPaths) {
+		if (LoadMap(p)) { std::cout << "[Map] Loaded: " << p << "\n"; mapOk = true; break; }
+	}
+	if (!mapOk) std::cout << "[Map] WARNING: map.txt not found, no wall collision.\n";
 
 	initNpcs();
 	initTownNpcs();

@@ -4,6 +4,7 @@
 #include "LuaManager.h"
 #include "PartyManager.h"
 #include "DungeonManager.h"
+#include "MapData.h"
 
 // After teleporting a player to a new position (sector + mX/mY already updated,
 // mDungeonInstanceId already set), send AddObject for all newly visible entities.
@@ -171,6 +172,9 @@ bool SESSION::processPacket(unsigned char* p)
 			}
 			break;
 		}
+
+		// Wall collision: reject move if destination is a wall
+		if (!IsWalkable(packet->x, packet->y)) break;
 
 		mX = packet->x;
 		mY = packet->y;
@@ -785,12 +789,8 @@ bool SESSION::processPacket(unsigned char* p)
 				break;
 			}
 
-			// /무적  ─── toggle invincibility
-			// Support both CP949 (0xB9AB=무, 0xC0FB=적) and UTF-8 encodings
-			const char* inv_cp949 = "/\xB9\xAB\xC0\xFB";   // /무적 in CP949
-			const char* inv_utf8  = "/\xEB\xAC\xB4\xEC\xA0\x81"; // /무적 in UTF-8
-			bool isInvCmd = (strncmp(msg, inv_cp949, 5) == 0 && (msg[5] == '\0' || msg[5] == ' '))
-			             || (strncmp(msg, inv_utf8,  7) == 0 && (msg[7] == '\0' || msg[7] == ' '));
+			// /godmode  ─── toggle invincibility
+			bool isInvCmd = (strncmp(msg, "/godmode", 8) == 0 && (msg[8] == '\0' || msg[8] == ' '));
 			if (isInvCmd) {
 				mInvincible = !mInvincible;
 				sendNotice(mInvincible ? "[GM] Invincible ON" : "[GM] Invincible OFF");

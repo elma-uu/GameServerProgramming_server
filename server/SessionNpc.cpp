@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "SESSION.h"
 #include "LuaManager.h"
+#include "MapData.h"
 
 void SESSION::doNpcMove()
 {
@@ -154,6 +155,7 @@ void SESSION::doNpcMove()
 	if (newY >= WORLD_HEIGHT) newY = WORLD_HEIGHT - 1;
 
 	if (is_in_safe_zone(newX, newY)) return;
+	if (!IsWalkable((short)newX, (short)newY)) return;
 	if (newX == mX && newY == mY) return;
 
 	mX = newX;

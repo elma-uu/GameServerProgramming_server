@@ -34,7 +34,7 @@ constexpr int LASER_DAMAGE     = 500;          // HP per laser hit
 // Phase 2 sword fall
 constexpr int SWORD_X_STEP           = 3;     // sword every 3 tiles (x=3,6,9,...)
 constexpr int SWORD_DAMAGE           = 300;
-constexpr int SWORD_FALL_INTERVAL_MS = 10000; // 10s between falls
+constexpr int SWORD_FALL_INTERVAL_MS = 5000;  // 5s between falls
 constexpr int SWORD_FALL_DURATION_MS = 3000;  // fall animation duration
 
 // WINDUP: attack anim playing, frames 0-9 (no laser yet)
@@ -84,10 +84,12 @@ private:
     void BroadcastHandAnimState(std::shared_ptr<SESSION> hand, unsigned char state);
     void ApplyLaserDamage(short centerYL, short centerYR);
 
-    // Phase 2: sword fall pattern
+    // Phase 2: sword fall pattern (vertical + horizontal run simultaneously)
     void UpdateSwordFall(std::chrono::steady_clock::time_point now);
     void BroadcastSwordFall(int durationMs);
-    void ApplySwordDamage(short swordRow);
+    void BroadcastSwordFallH(int durationMs);
+    void ApplySwordDamage(short swordRow);    // vertical: fixed x cols, moving y row
+    void ApplySwordDamageH(short swordCol);  // horizontal: fixed y rows, moving x col
 
     // Attack hitbox helpers — called from IOCP worker threads (acquire mMutex for reads)
 public:
@@ -96,6 +98,9 @@ public:
     // Apply player attack damage to a boss part. Broadcasts DamageNumber + StatusChange/Remove.
     void OnPartDamage(std::shared_ptr<SESSION> part, int attackerId, int damage, bool isCrit);
 private:
+    // Called when the boss head HP reaches 0: distribute rewards to all dungeon players,
+    // teleport them back to world spawn, and release the dungeon slot.
+    void HandleBossDeath();
     // Called after laser damage: teleport all dead players to world spawn and close slot.
     // Safe to call from the dungeon thread (the thread holds its own shared_ptr reference).
     void CheckWipe();
@@ -121,10 +126,11 @@ private:
     short              mHandTargetYL = DUNGEON_LOCAL_BOSS_Y;
     short              mHandTargetYR = DUNGEON_LOCAL_BOSS_Y;
 
-    // Phase 2 sword fall state
+    // Phase 2 sword fall state (vertical + horizontal share same state machine)
     bool               mPhase2Started  = false;
     SwordFallState     mSwordFallState = SwordFallState::IDLE;
     std::chrono::steady_clock::time_point mSwordFallTimer{};
     std::chrono::steady_clock::time_point mSwordFallStart{};
-    int                mSwordLastRow   = -1;
+    int                mSwordLastRow   = -1;  // last vertical row processed
+    int                mSwordHLastCol  = -1;  // last horizontal col processed
 };

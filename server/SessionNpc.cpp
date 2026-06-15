@@ -16,7 +16,8 @@ void SESSION::doNpcMove()
 
 	if (mTargetId >= 0) {
 		auto it = clients.find(mTargetId);
-		bool valid = (it != clients.end() && it->second && it->second->mState == CS_PLAYING);
+		bool valid = (it != clients.end() && it->second && it->second->mState == CS_PLAYING
+		              && !it->second->mIsDead);
 		if (!valid) {
 			mTargetId = -1;
 			mChaseRemaining = 0;
@@ -56,16 +57,53 @@ void SESSION::doNpcMove()
 						mAttackTick = 2;
 
 						if (tgt->mHp <= 0) {
-							tgt->mExp /= 2;
-							tgt->mHp = tgt->mMaxHp;
-							sectors[tgt->mSector_id].erase(tgt->mId);
-							tgt->mX = 1000; tgt->mY = 1000;
-							tgt->mSector_id = get_sector_id(tgt->mX, tgt->mY);
-							sectors[tgt->mSector_id].insert(tgt->mId);
-							tgt->sendRespawn();
+							tgt->mHp    = 0;
+							tgt->mExp  /= 2;
+							tgt->mIsDead = true;
+
+							// Notify dying player and all visible players: play die animation
+							S2C_PlayerDie dp;
+							dp.size      = sizeof(S2C_PlayerDie);
+							dp.type      = S2C_PLAYER_DIE;
+							dp.object_id = tgt->mId;
+							tgt->doSend(dp.size, reinterpret_cast<char*>(&dp));
+							{
+								tgt->m_visible_mutex.lock();
+								auto watchers = tgt->m_visible_players;
+								tgt->m_visible_mutex.unlock();
+								for (int wid : watchers) {
+									auto wit = clients.find(wid);
+									if (wit == clients.end()) continue;
+									auto wpl = wit->second;
+									if (!wpl || wpl->mState != CS_PLAYING) continue;
+									wpl->doSend(dp.size, reinterpret_cast<char*>(&dp));
+								}
+							}
+
+							// Also update the dying player's own HP display
 							tgt->sendAvatarInfo();
-							mTargetId = -1;
+
+							mTargetId      = -1;
 							mChaseRemaining = 0;
+
+							// Respawn at world spawn after 10 seconds (not in dungeon)
+							int pid = tgt->mId;
+							std::thread([pid]() {
+								std::this_thread::sleep_for(std::chrono::seconds(10));
+								auto it2 = clients.find(pid);
+								if (it2 == clients.end()) return;
+								auto p = it2->second;
+								if (!p || !p->mIsDead || p->mDungeonInstanceId >= 0) return;
+								p->mHp    = p->mMaxHp;
+								p->mIsDead = false;
+								sectors[p->mSector_id].erase(p->mId);
+								p->mX = 1000;
+								p->mY = 1000;
+								p->mSector_id = get_sector_id(1000, 1000);
+								sectors[p->mSector_id].insert(p->mId);
+								p->sendRespawn();
+								p->sendAvatarInfo();
+							}).detach();
 						} else {
 							S2C_StatusChange sc;
 							sc.size      = sizeof(S2C_StatusChange);

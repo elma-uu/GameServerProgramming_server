@@ -88,7 +88,12 @@ enum PACKET_TYPE {
 	S2C_HAND_MOVE_TO,	//	Server to Client: smoothly move boss hand to target position
 	S2C_LASER_FIRE,		//	Server to Client: laser fires at dungeon row y (visual + damage zone)
 	S2C_HAND_ANIM_STATE,//	Server to Client: switch boss hand animation state (0=idle 1=attack)
-	S2C_SWORD_FALL,		//	Server to Client: phase 2 swords fall from top to bottom
+	S2C_SWORD_FALL,		//	Server to Client: phase 2 vertical swords fall (x=3,6,9,...)
+	S2C_SWORD_FALL_H,	//	Server to Client: phase 2 horizontal swords sweep (y=3,6,9,...)
+	S2C_PLAYER_DIE,		//	Server to Client: player died — play die animation
+
+	C2S_ENHANCE_WEAPON,	//	Client to Server: request weapon enhancement
+	S2C_ENHANCE_RESULT,	//	Server to Client: enhancement result (success/fail/reset + new level + gold)
 };
 
 enum STAT_TYPE : unsigned char {
@@ -420,6 +425,32 @@ struct S2C_SwordFall {
 	unsigned char size;
 	PACKET_TYPE   type;
 	int           fall_duration_ms;
+};
+
+struct S2C_SwordFallH {
+	unsigned char size;
+	PACKET_TYPE   type;
+	int           fall_duration_ms;
+};
+
+struct S2C_PlayerDie {
+	unsigned char size;
+	PACKET_TYPE   type;
+	int           object_id;
+};
+
+struct C2S_EnhanceWeapon {
+	unsigned char size;
+	PACKET_TYPE   type;
+};
+
+// result: 0=fail  1=success  2=fail+reset(level→0)
+struct S2C_EnhanceResult {
+	unsigned char size;
+	PACKET_TYPE   type;
+	unsigned char result;    // 0=fail 1=success 2=fail+reset
+	unsigned char new_level; // weapon enhance level after result
+	int           gold;      // updated gold balance
 };
 
 #pragma pack(pop) // Restore default packing

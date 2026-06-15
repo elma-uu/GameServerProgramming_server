@@ -49,8 +49,9 @@ public:
 
 	// Economy
 	int mGold;
-	int mPotionCount = 0;   // HP potions in inventory
-	int mScrollCount = 0;   // teleport scrolls in inventory
+	int mPotionCount    = 0;  // HP potions in inventory
+	int mScrollCount    = 0;  // teleport scrolls in inventory
+	int mWeaponEnhance  = 0;  // weapon enhancement level (0-25)
 
 	// Combat (NPC only)
 	int mAttackTick;   // ticks until next attack (0 = ready, counts down per doNpcMove call)
@@ -60,6 +61,9 @@ public:
 
 	// GM cheat: player cannot take damage when true
 	bool mInvincible = false;
+
+	// Safe-zone regen (GetTickCount64 tick of last heal; 0 = not yet started)
+	DWORD mLastRegenTick = 0;
 
 	// Quest progress (player only)
 	struct QuestEntry {
@@ -92,6 +96,7 @@ public:
 	void sendQuestUpdate(int questId);
 	void onMonsterKilled();
 	bool processPacket(unsigned char* p);
+	void CheckSafeZoneRegen();
 
 	// call this whenever the player levels up to grant stat points
 	void onLevelUp() { mStatPoints += 5; sendStatInfo(); }

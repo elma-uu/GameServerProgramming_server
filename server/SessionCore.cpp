@@ -42,6 +42,30 @@ void SESSION::sendGoldUpdate()
 	doSend(pkt.size, reinterpret_cast<char*>(&pkt));
 }
 
+// Safe-zone HP regeneration — called once per packet received while in the world.
+// Heals 5% of max HP every 3 seconds when the player is near world spawn (tile radius 30).
+void SESSION::CheckSafeZoneRegen()
+{
+	if (mState != CS_PLAYING) return;
+	if (mIsDead) return;
+	if (mDungeonInstanceId >= 0) return;  // no regen inside dungeons
+	if (mHp >= mMaxHp) return;            // already full
+
+	DWORD now = (DWORD)GetTickCount64();
+	if (mLastRegenTick == 0) { mLastRegenTick = now; return; }
+	if (now - mLastRegenTick < 3000) return;
+
+	// Radius-30 circular safe zone around town spawn (1000, 1000)
+	int dx = (int)mX - 1000;
+	int dy = (int)mY - 1000;
+	if (dx * dx + dy * dy > 30 * 30) return;
+
+	mLastRegenTick = now;
+	int heal = max(1, mMaxHp * 5 / 100);
+	mHp = min(mMaxHp, mHp + heal);
+	sendAvatarInfo();
+}
+
 // new_hp field is repurposed to carry the item count after purchase.
 void SESSION::sendBuyResult(bool success, ITEM_TYPE item, int itemCount, short /*unused_x*/, short /*unused_y*/)
 {

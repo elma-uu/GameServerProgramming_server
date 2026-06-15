@@ -368,6 +368,9 @@ void DungeonInstance::OnPartDamage(std::shared_ptr<SESSION> part,
         ro.type      = S2C_REMOVE_OBJECT;
         ro.object_id = part->mId;
         BroadcastToAll(&ro, ro.size);
+
+        // Boss head death → give rewards and end the dungeon
+        if (part == mBoss) HandleBossDeath();
     }
 }
 
@@ -384,15 +387,27 @@ void DungeonInstance::BroadcastSwordFall(int durationMs)
     BroadcastToAll(&pkt, pkt.size);
 }
 
+void DungeonInstance::BroadcastSwordFallH(int durationMs)
+{
+    S2C_SwordFallH pkt;
+    pkt.size             = sizeof(S2C_SwordFallH);
+    pkt.type             = S2C_SWORD_FALL_H;
+    pkt.fall_duration_ms = durationMs;
+    BroadcastToAll(&pkt, pkt.size);
+}
+
 void DungeonInstance::UpdateSwordFall(std::chrono::steady_clock::time_point now)
 {
     switch (mSwordFallState) {
 
     case SwordFallState::IDLE:
         if (now < mSwordFallTimer) break;
+        // Launch vertical AND horizontal swords simultaneously
         BroadcastSwordFall(SWORD_FALL_DURATION_MS);
+        BroadcastSwordFallH(SWORD_FALL_DURATION_MS);
         mSwordFallStart = now;
         mSwordLastRow   = -1;
+        mSwordHLastCol  = -1;
         mSwordFallState = SwordFallState::FALLING;
         break;
 
@@ -401,14 +416,19 @@ void DungeonInstance::UpdateSwordFall(std::chrono::steady_clock::time_point now)
             long long elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 now - mSwordFallStart).count();
 
-            // Which dungeon row the sword center is currently at
-            int currentRow = (int)((float)elapsed / SWORD_FALL_DURATION_MS * DUNGEON_SIZE);
-            if (currentRow >= DUNGEON_SIZE) currentRow = DUNGEON_SIZE - 1;
+            // Current leading edge (both vertical and horizontal advance at the same rate)
+            int current = (int)((float)elapsed / SWORD_FALL_DURATION_MS * DUNGEON_SIZE);
+            if (current >= DUNGEON_SIZE) current = DUNGEON_SIZE - 1;
 
-            // Apply damage for each newly reached row
-            for (int row = mSwordLastRow + 1; row <= currentRow; ++row)
+            // Vertical: sword falls downward — fixed x=3,6,9,..., moving y row
+            for (int row = mSwordLastRow + 1; row <= current; ++row)
                 ApplySwordDamage((short)row);
-            mSwordLastRow = currentRow;
+            mSwordLastRow = current;
+
+            // Horizontal: sword sweeps rightward — fixed y=3,6,9,..., moving x col
+            for (int col = mSwordHLastCol + 1; col <= current; ++col)
+                ApplySwordDamageH((short)col);
+            mSwordHLastCol = current;
 
             if (elapsed >= SWORD_FALL_DURATION_MS) {
                 mSwordFallState = SwordFallState::IDLE;
@@ -463,6 +483,131 @@ void DungeonInstance::ApplySwordDamage(short swordRow)
     }
 
     if (anyDamaged) CheckWipe();
+}
+
+// Horizontal sword: fixed y rows (SWORD_X_STEP, 2*SWORD_X_STEP, ...), moving x column.
+void DungeonInstance::ApplySwordDamageH(short swordCol)
+{
+    std::vector<std::shared_ptr<SESSION>> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(mMutex);
+        snapshot = mPlayers;
+    }
+
+    bool anyDamaged = false;
+    for (auto& p : snapshot) {
+        if (!p || p->mIsDead || p->mHp <= 0) continue;
+        // Sword Y rows: 3, 6, 9, ... (p->mY > 0 && p->mY % SWORD_X_STEP == 0)
+        if (p->mY == 0 || p->mY % SWORD_X_STEP != 0) continue;
+        if (std::abs((int)p->mX - (int)swordCol) > 1) continue;
+
+        int damage = SWORD_DAMAGE;
+        if (p->mInvincible) damage = 0;
+        p->mHp -= damage;
+        if (p->mHp < 0) p->mHp = 0;
+
+        S2C_StatusChange sc;
+        sc.size      = sizeof(S2C_StatusChange);
+        sc.type      = S2C_STATUS_CHANGE;
+        sc.object_id = p->mId;
+        sc.hp        = p->mHp;
+        sc.max_hp    = p->mMaxHp;
+        sc.exp       = p->mExp;
+        sc.level     = p->mLevel;
+        BroadcastToAll(&sc, sc.size);
+
+        if (damage > 0 && mBoss) {
+            S2C_DamageNumber dn;
+            dn.size        = sizeof(S2C_DamageNumber);
+            dn.type        = S2C_DAMAGE_NUMBER;
+            dn.attacker_id = mBoss->mId;
+            dn.object_id   = p->mId;
+            dn.damage      = damage;
+            dn.is_crit     = 0;
+            BroadcastToAll(&dn, dn.size);
+        }
+        anyDamaged = true;
+    }
+
+    if (anyDamaged) CheckWipe();
+}
+
+// ---------------------------------------------------------------------------
+// Boss kill: distribute EXP + gold rewards, then send all players back to world.
+// ---------------------------------------------------------------------------
+
+void DungeonInstance::HandleBossDeath()
+{
+    constexpr unsigned long long BOSS_KILL_EXP  = 5000ULL;
+    constexpr int                BOSS_KILL_GOLD = 1000;
+    constexpr short WORLD_SPAWN_X = 1000;
+    constexpr short WORLD_SPAWN_Y = 1000;
+
+    // Snapshot and clear the player list atomically so concurrent calls are no-ops.
+    std::vector<std::shared_ptr<SESSION>> players;
+    {
+        std::lock_guard<std::mutex> lock(mMutex);
+        if (mPlayers.empty()) return;
+        players  = mPlayers;
+        mPlayers.clear();
+    }
+
+    for (auto& p : players) {
+        if (!p || !p->is_player) continue;
+
+        // Grant EXP and gold
+        p->mExp  += BOSS_KILL_EXP;
+        p->mGold += BOSS_KILL_GOLD;
+
+        // Level-up loop (same formula as normal kills)
+        while (p->mLevel < 100) {
+            unsigned long long required =
+                (unsigned long long)p->mLevel * p->mLevel * 20ULL;
+            if (p->mExp < required) break;
+            p->mExp  -= required;
+            p->mLevel++;
+            p->mStatPoints += 5;
+        }
+
+        // Deliver reward packets first so the client sees the numbers
+        p->sendGoldUpdate();
+        p->sendAvatarInfo();   // also sends S2C_StatInfo (covers stat_points update)
+
+        // Restore HP and relocate to world spawn
+        p->mHp              = p->mMaxHp;
+        p->mX               = WORLD_SPAWN_X;
+        p->mY               = WORLD_SPAWN_Y;
+        p->mDungeonInstanceId = -1;
+        p->mIsDead          = false;
+
+        int sid = get_sector_id(WORLD_SPAWN_X, WORLD_SPAWN_Y);
+        p->mSector_id = sid;
+        sectors[sid].insert(p->mId);
+
+        {
+            S2C_DungeonEnter de;
+            de.size        = sizeof(S2C_DungeonEnter);
+            de.type        = S2C_DUNGEON_ENTER;
+            de.entered     = 0;
+            de.instance_id = -1;
+            de.x           = WORLD_SPAWN_X;
+            de.y           = WORLD_SPAWN_Y;
+            p->doSend(de.size, reinterpret_cast<char*>(&de));
+        }
+        {
+            S2C_Respawn rs;
+            rs.size    = sizeof(S2C_Respawn);
+            rs.type    = S2C_RESPAWN;
+            rs.hp      = p->mMaxHp;
+            rs.max_hp  = p->mMaxHp;
+            rs.x       = WORLD_SPAWN_X;
+            rs.y       = WORLD_SPAWN_Y;
+            p->doSend(rs.size, reinterpret_cast<char*>(&rs));
+        }
+    }
+
+    DungeonManager::ReleaseSlot(mInstanceId);
+    mRunning = false;
 }
 
 // ---------------------------------------------------------------------------

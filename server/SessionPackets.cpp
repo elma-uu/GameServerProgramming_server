@@ -67,6 +67,7 @@ static void clearVisibilityBeforeTeleport(std::shared_ptr<SESSION> member, int m
 bool SESSION::processPacket(unsigned char* p)
 {
 	if (not is_player) return true;
+	CheckSafeZoneRegen();
 
 	PACKET_TYPE type = *reinterpret_cast<PACKET_TYPE*>(&p[1]);
 	switch (type) {
@@ -309,7 +310,7 @@ bool SESSION::processPacket(unsigned char* p)
 		if (!target) break;
 		if (target->is_player) break;
 
-		int damage = 10 + static_cast<int>(mStr) * 3;
+		int damage = 10 + static_cast<int>(mStr) * 3 + mWeaponEnhance * 10;
 		bool is_crit = (rand() % 100) < static_cast<int>(mLuk);
 		if (is_crit) damage = damage * 3 / 2;
 
@@ -425,7 +426,7 @@ bool SESSION::processPacket(unsigned char* p)
 		if (mDungeonInstanceId >= 0) {
 			auto inst = DungeonManager::GetInstance(mDungeonInstanceId);
 			if (inst) {
-				int damage  = 15 + static_cast<int>(mIntl) * 4;
+				int damage  = 15 + static_cast<int>(mIntl) * 4 + mWeaponEnhance * 10;
 				bool isCrit = (rand() % 100) < static_cast<int>(mLuk);
 				if (isCrit) damage = damage * 3 / 2;
 				std::shared_ptr<SESSION> alreadyHit;
@@ -466,7 +467,7 @@ bool SESSION::processPacket(unsigned char* p)
 			if (!target) continue;
 			if (target->is_player) continue;
 
-			int damage = 15 + static_cast<int>(mIntl) * 4;
+			int damage = 15 + static_cast<int>(mIntl) * 4 + mWeaponEnhance * 10;
 			bool is_crit = (rand() % 100) < static_cast<int>(mLuk);
 			if (is_crit) damage = damage * 3 / 2;
 
@@ -561,6 +562,73 @@ bool SESSION::processPacket(unsigned char* p)
 		}
 
 		if (stat_changed) { sendGoldUpdate(); sendAvatarInfo(); }
+	}
+	break;
+	case C2S_ENHANCE_WEAPON:
+	{
+		if (mWeaponEnhance >= 25) break;
+
+		// Gold cost per level (index = current level, 0-24)
+		static const int ENHANCE_COST[25] = {
+			500,   500,   500,   500,   500,   // +0→+5
+			1500,  1500,  1500,  1500,  1500,  // +5→+10
+			5000,  5000,  5000,  5000,  5000,  // +10→+15
+			15000, 15000, 15000, 15000, 15000, // +15→+20
+			50000, 50000, 50000, 50000, 50000, // +20→+25
+		};
+		// Success rate % (index = current level)
+		static const int ENHANCE_SUCCESS[25] = {
+			90, 85, 80, 75, 70,  // +0~+4
+			65, 60, 55, 50, 45,  // +5~+9
+			40, 35, 30, 28, 25,  // +10~+14
+			22, 20, 18, 15, 13,  // +15~+19
+			11,  9,  7,  5,  3,  // +20~+24
+		};
+		// Reset chance % on failure (0 = no reset, only from +12 onwards)
+		static const int ENHANCE_RESET[25] = {
+			 0,  0,  0,  0,  0,  // +0~+4
+			 0,  0,  0,  0,  0,  // +5~+9
+			 0,  0,  5,  8, 12,  // +10~+14 (+12 starts at 5%)
+			16, 20, 25, 30, 35,  // +15~+19
+			40, 50, 60, 70, 80,  // +20~+24
+		};
+
+		int lv   = mWeaponEnhance;
+		int cost = ENHANCE_COST[lv];
+		if (mGold < cost) {
+			S2C_EnhanceResult res;
+			res.size      = sizeof(S2C_EnhanceResult);
+			res.type      = S2C_ENHANCE_RESULT;
+			res.result    = 0;
+			res.new_level = (unsigned char)mWeaponEnhance;
+			res.gold      = mGold;
+			doSend(res.size, reinterpret_cast<char*>(&res));
+			break;
+		}
+		mGold -= cost;
+
+		unsigned char result;
+		int roll = rand() % 100;
+		if (roll < ENHANCE_SUCCESS[lv]) {
+			mWeaponEnhance++;
+			result = 1; // success
+		} else {
+			int resetRoll = rand() % 100;
+			if (ENHANCE_RESET[lv] > 0 && resetRoll < ENHANCE_RESET[lv]) {
+				mWeaponEnhance = 0;
+				result = 2; // fail + reset
+			} else {
+				result = 0; // fail, level unchanged
+			}
+		}
+
+		S2C_EnhanceResult res;
+		res.size      = sizeof(S2C_EnhanceResult);
+		res.type      = S2C_ENHANCE_RESULT;
+		res.result    = result;
+		res.new_level = (unsigned char)mWeaponEnhance;
+		res.gold      = mGold;
+		doSend(res.size, reinterpret_cast<char*>(&res));
 	}
 	break;
 	case C2S_BUY_ITEM:

@@ -232,6 +232,9 @@ bool SESSION::processPacket(unsigned char* p)
 				if (new_v_npcs.count(npc_id) == 0) sendRemoveNpc(npc_id);
 			}
 		}
+
+		// Echo move back to self so clients can measure round-trip delay via move_time
+		sendMovePacket(mId);
 	}
 	break;
 	case C2S_STAT_INVEST:

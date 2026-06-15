@@ -1,6 +1,6 @@
 #pragma once
 
-constexpr short PORT = 3500;
+constexpr short PORT = 3000;
 constexpr int WORLD_WIDTH  = 16000; // extended for dungeon instances
 constexpr int WORLD_HEIGHT = 2000;
 

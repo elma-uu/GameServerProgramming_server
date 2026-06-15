@@ -1,6 +1,3 @@
--- npc_ai.lua: A* pathfinding for NPC chase behavior
--- Called from C++ via LuaManager::GetNextStep(sx, sy, gx, gy, max_range)
--- Returns: dx, dy  (one-tile step toward goal, or 0,0 if blocked/unreachable)
 
 local function node_key(x, y)
     return x * 100003 + y
@@ -18,7 +15,6 @@ function find_next_step(sx, sy, gx, gy, max_range)
 
     if sx == gx and sy == gy then return 0, 0 end
 
-    -- Clamp goal inside Manhattan max_range
     local dx_goal = gx - sx
     local dy_goal = gy - sy
     local manhattan = math.abs(dx_goal) + math.abs(dy_goal)
@@ -26,7 +22,7 @@ function find_next_step(sx, sy, gx, gy, max_range)
         local scale = max_range / manhattan
         gx = math.floor(sx + dx_goal * scale)
         gy = math.floor(sy + dy_goal * scale)
-        -- Ensure clamped goal is walkable; shift 1 tile back if needed
+
         if not is_walkable(gx, gy) then
             gx = gx + (dx_goal > 0 and -1 or 1)
             gy = gy + (dy_goal > 0 and -1 or 1)
@@ -48,7 +44,7 @@ function find_next_step(sx, sy, gx, gy, max_range)
     local found = false
 
     for _ = 1, 800 do
-        -- Pick open node with lowest f (linear scan — fine for max_range <= 20)
+
         local best_k, best = nil, nil
         for k, n in pairs(open) do
             if best == nil or n.f < best.f then
@@ -69,8 +65,6 @@ function find_next_step(sx, sy, gx, gy, max_range)
             local nx = best.x + d[1]
             local ny = best.y + d[2]
 
-            -- [FIX] Manhattan distance bound (was Chebyshev — too large diagonally)
-            -- [FIX] Wall check via registered C++ function
             local mdist = math.abs(nx - sx) + math.abs(ny - sy)
             if  mdist <= max_range
             and nx >= 0 and ny >= 0
@@ -90,13 +84,12 @@ function find_next_step(sx, sy, gx, gy, max_range)
     end
 
     if not found then
-        -- [FIX] Fallback: try the 4 directions in priority order, prefer toward goal
+
         local odx = gx - sx
         local ody = gy - sy
         local sdx = (odx > 0) and 1 or (odx < 0 and -1 or 0)
         local sdy = (ody > 0) and 1 or (ody < 0 and -1 or 0)
 
-        -- Try primary axis first, then secondary, then opposite axes
         local candidates
         if math.abs(odx) >= math.abs(ody) then
             candidates = { {sdx,0}, {0,sdy}, {0,-sdy}, {-sdx,0} }
@@ -113,7 +106,6 @@ function find_next_step(sx, sy, gx, gy, max_range)
         return 0, 0
     end
 
-    -- Reconstruct path: trace back from goal to find first step after start
     local cx, cy = gx, gy
     local steps = 0
     while steps < max_range + 2 do
@@ -121,7 +113,6 @@ function find_next_step(sx, sy, gx, gy, max_range)
         local ck     = node_key(cx, cy)
         local parent = came_from[ck]
         if parent == nil then
-            -- [FIX] Reached start node without finding first step → use fallback
             break
         end
         if parent[1] == sx and parent[2] == sy then
@@ -130,7 +121,6 @@ function find_next_step(sx, sy, gx, gy, max_range)
         cx, cy = parent[1], parent[2]
     end
 
-    -- [FIX] Path reconstruction failed — use single-step fallback
     local odx = gx - sx
     local ody = gy - sy
     local sdx = (odx > 0) and 1 or (odx < 0 and -1 or 0)

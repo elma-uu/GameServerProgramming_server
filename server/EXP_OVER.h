@@ -11,7 +11,9 @@ class RingBuffer {
 	int size;
 	RingBuffer() : head(0), tail(0), size(0) {}
 	bool push(const char* data, int len) {
-		if (len > MAX_BUF_SIZE - size) return false; // Not enough space
+
+		if (len > MAX_BUF_SIZE - size) return false;
+
 		for (int i = 0; i < len; ++i) {
 			buffer[tail] = data[i];
 			tail = (tail + 1) % MAX_BUF_SIZE;
@@ -20,7 +22,9 @@ class RingBuffer {
 		return true;
 	}
 	int pop(char* dest, int len) {
-		if (len > size) return -1; // Not enough data
+
+		if (len > size) return -1;
+
 		for (int i = 0; i < len; ++i) {
 			dest[i] = buffer[head];
 			head = (head + 1) % MAX_BUF_SIZE;

@@ -164,9 +164,7 @@ int main()
 
 	// Load world map (collision)
 	const char* mapPaths[] = {
-		"Resource\\Map\\map.txt",
-		"..\\Resource\\Map\\map.txt",
-		"..\\..\\Resource\\Map\\map.txt",
+		"map.txt"
 	};
 	bool mapOk = false;
 	for (const char* p : mapPaths) {

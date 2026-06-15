@@ -771,7 +771,7 @@ bool SESSION::processPacket(unsigned char* p)
 						auto inst = DungeonManager::GetInstance(mDungeonInstanceId);
 						if (inst) inst->OnPlayerMove(self);
 					}
-					sendAvatarInfo();
+					sendRespawn();
 				} else {
 					// World: tile (0..1999)
 					short nx = (short)max(0, min(tpX, 1999));
@@ -782,7 +782,7 @@ bool SESSION::processPacket(unsigned char* p)
 					mX = nx; mY = ny;
 					mSector_id = get_sector_id(mX, mY);
 					sectors[mSector_id].insert(mId);
-					sendAvatarInfo();
+					sendRespawn();
 					if (self) reEstablishVisibility(self, mId);
 				}
 				char buf[48];

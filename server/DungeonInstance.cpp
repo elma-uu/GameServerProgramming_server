@@ -584,7 +584,10 @@ void DungeonInstance::HandleBossDeath()
 
         int sid = get_sector_id(WORLD_SPAWN_X, WORLD_SPAWN_Y);
         p->mSector_id = sid;
-        sectors[sid].insert(p->mId);
+        {
+            std::lock_guard<std::mutex> lk(g_sectors_mutex);
+            sectors[sid].insert(p->mId);
+        }
 
         {
             S2C_DungeonEnter de;
@@ -649,7 +652,10 @@ void DungeonInstance::CheckWipe()
         // Re-insert into world sector
         int sid = get_sector_id(WORLD_SPAWN_X, WORLD_SPAWN_Y);
         p->mSector_id = sid;
-        sectors[sid].insert(p->mId);
+        {
+            std::lock_guard<std::mutex> lk(g_sectors_mutex);
+            sectors[sid].insert(p->mId);
+        }
 
         // Tell client to exit dungeon
         {

@@ -128,6 +128,9 @@ extern std::unordered_set<int> g_active_npcs;
 // Player ID set — for fast player-only iteration (db_save, respawn notification)
 extern tbb::concurrent_unordered_map<int, bool> g_player_ids;
 
+// Async disconnect saves — pushed by disconnect(), drained by db_save_thread
+extern tbb::concurrent_queue<PlayerSaveData> g_pending_saves;
+
 // Sends S2C_PartyUpdate to every online member of partyId
 void broadcastPartyUpdate(int partyId);
 

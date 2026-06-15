@@ -187,6 +187,7 @@ bool SESSION::processPacket(unsigned char* p)
 
 		int new_sector_id = get_sector_id(mX, mY);
 		if (new_sector_id != mSector_id) {
+			std::lock_guard<std::mutex> lk(g_sectors_mutex);
 			sectors[mSector_id].erase(mId);
 			sectors[new_sector_id].insert(mId);
 			mSector_id = new_sector_id;
@@ -376,7 +377,10 @@ bool SESSION::processPacket(unsigned char* p)
 			}
 
 			target->mIsDead = true;
-			sectors[target->mSector_id].erase(target_id);
+			{
+				std::lock_guard<std::mutex> lk(g_sectors_mutex);
+				sectors[target->mSector_id].erase(target_id);
+			}
 
 			unsigned long long kill_exp = static_cast<unsigned long long>(target->mLevel) * target->mLevel * 2ULL;
 			mExp += kill_exp;
@@ -701,11 +705,17 @@ bool SESSION::processPacket(unsigned char* p)
 			} else {
 				auto self = clients[mId];
 				if (self) clearVisibilityBeforeTeleport(self, mId);
-				sectors[mSector_id].erase(mId);
+				{
+					std::lock_guard<std::mutex> lk(g_sectors_mutex);
+					sectors[mSector_id].erase(mId);
+				}
 			}
 			mX = 1000; mY = 1000;
 			mSector_id = get_sector_id(mX, mY);
-			sectors[mSector_id].insert(mId);
+			{
+				std::lock_guard<std::mutex> lk(g_sectors_mutex);
+				sectors[mSector_id].insert(mId);
+			}
 			sendUseItemResult(true, item, mScrollCount, 0, mX, mY);
 			{
 				auto self = clients[mId];
@@ -781,10 +791,16 @@ bool SESSION::processPacket(unsigned char* p)
 					short ny = (short)max(0, min(tpY, 1999));
 					auto self = clients[mId];
 					if (self) clearVisibilityBeforeTeleport(self, mId);
-					sectors[mSector_id].erase(mId);
+					{
+						std::lock_guard<std::mutex> lk(g_sectors_mutex);
+						sectors[mSector_id].erase(mId);
+					}
 					mX = nx; mY = ny;
 					mSector_id = get_sector_id(mX, mY);
-					sectors[mSector_id].insert(mId);
+					{
+						std::lock_guard<std::mutex> lk(g_sectors_mutex);
+						sectors[mSector_id].insert(mId);
+					}
 					sendRespawn();
 					if (self) reEstablishVisibility(self, mId);
 				}
@@ -968,7 +984,10 @@ bool SESSION::processPacket(unsigned char* p)
 				member->mX         = 1000;
 				member->mY         = 1000;
 				member->mSector_id = get_sector_id(1000, 1000);
-				sectors[member->mSector_id].insert(member->mId);
+				{
+					std::lock_guard<std::mutex> lk(g_sectors_mutex);
+					sectors[member->mSector_id].insert(member->mId);
+				}
 
 				S2C_DungeonEnter pkt;
 				pkt.size        = sizeof(S2C_DungeonEnter);
@@ -1022,7 +1041,10 @@ bool SESSION::processPacket(unsigned char* p)
 			clearVisibilityBeforeTeleport(member, mid);
 
 			// Remove from world sector; dungeon players are NOT in any world sector
-			sectors[member->mSector_id].erase(mid);
+			{
+				std::lock_guard<std::mutex> lk(g_sectors_mutex);
+				sectors[member->mSector_id].erase(mid);
+			}
 
 			// Set dungeon-local position (NOT world offset)
 			member->mX                 = spawn_x;

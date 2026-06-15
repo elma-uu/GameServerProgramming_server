@@ -172,6 +172,10 @@ int main()
 	}
 	if (!mapOk) std::cout << "[Map] WARNING: map.txt not found, no wall collision.\n";
 
+	// Pre-fill the player ID free list so IDs are recycled on disconnect
+	for (int i = 0; i < MAX_PLAYERS; ++i)
+		g_free_player_ids.push(i);
+
 	initNpcs();
 	initTownNpcs();
 

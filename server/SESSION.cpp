@@ -13,9 +13,11 @@ tbb::concurrent_unordered_map<int, bool>                      g_player_ids;
 std::mutex           g_active_npcs_mutex;
 std::unordered_set<int> g_active_npcs;
 
-SOCKET           g_server;
-HANDLE           g_iocp;
-std::atomic<int> player_index = 0;
+SOCKET     g_server;
+HANDLE     g_iocp;
+std::mutex g_sectors_mutex;
+tbb::concurrent_queue<int>            g_free_player_ids;
+tbb::concurrent_queue<PlayerSaveData> g_pending_saves;
 
 void error_display(const wchar_t* msg, int err_no)
 {

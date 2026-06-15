@@ -62,7 +62,10 @@ void respawn_timer_thread()
 			npc->mChaseRemaining = 0;
 
 			int new_sector = get_sector_id(npc->mX, npc->mY);
-			sectors[new_sector].insert(npc_id);
+			{
+				std::lock_guard<std::mutex> lk(g_sectors_mutex);
+				sectors[new_sector].insert(npc_id);
+			}
 			npc->mSector_id = new_sector;
 
 			// Only iterate players (not all 200k+ clients)
@@ -115,6 +118,18 @@ void db_save_thread()
 {
 	while (true) {
 		std::this_thread::sleep_for(std::chrono::seconds(10));
+
+		// Drain disconnect saves first — these arrive async so worker threads don't block on DB
+		{
+			PlayerSaveData sd;
+			int flushed = 0;
+			while (g_pending_saves.try_pop(sd)) {
+				Database::SavePlayer(sd);
+				++flushed;
+			}
+			if (flushed > 0)
+				std::cout << "[AutoSave] Flushed " << flushed << " disconnect save(s).\n";
+		}
 
 		int saved = 0;
 		// Iterate only player IDs — skips all 200k NPC entries

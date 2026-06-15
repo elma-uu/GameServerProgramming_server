@@ -140,7 +140,10 @@ void SESSION::enterWorld()
 	}
 
 	int initial_sector_id = get_sector_id(mX, mY);
-	sectors[initial_sector_id].insert(mId);
+	{
+		std::lock_guard<std::mutex> lk(g_sectors_mutex);
+		sectors[initial_sector_id].insert(mId);
+	}
 	mSector_id = initial_sector_id;
 
 	sendAvatarInfo();

@@ -20,9 +20,14 @@ void SESSION::get_visible_players_from_sectors(std::unordered_set<int>& visible_
 			if (sector_x < 0 || sector_x >= sectors_x ||
 				sector_y < 0 || sector_y >= sectors_x) continue;
 			int sector_id = sector_y * sectors_x + sector_x;
-			auto it = sectors.find(sector_id);
-			if (it == sectors.end()) continue;
-			for (int player_id : it->second) {
+			std::vector<int> snap;
+			{
+				std::lock_guard<std::mutex> lk(g_sectors_mutex);
+				auto it = sectors.find(sector_id);
+				if (it != sectors.end())
+					snap.assign(it->second.begin(), it->second.end());
+			}
+			for (int player_id : snap) {
 				std::shared_ptr<SESSION> pl = clients[player_id];
 				if (!pl || pl->mId == mId) continue;
 				if (!pl->is_player || pl->mState != CS_PLAYING) continue;
@@ -45,9 +50,14 @@ void SESSION::get_visible_npcs_from_sectors(std::unordered_set<int>& visible_set
 			int sy = my_sector_y + dy;
 			if (sx < 0 || sx >= sectors_x || sy < 0 || sy >= sectors_x) continue;
 			int sector_id = sy * sectors_x + sx;
-			auto it = sectors.find(sector_id);
-			if (it == sectors.end()) continue;
-			for (int id : it->second) {
+			std::vector<int> snap;
+			{
+				std::lock_guard<std::mutex> lk(g_sectors_mutex);
+				auto it = sectors.find(sector_id);
+				if (it != sectors.end())
+					snap.assign(it->second.begin(), it->second.end());
+			}
+			for (int id : snap) {
 				if (id < NPC_ID_START) continue;
 				auto cit = clients.find(id);
 				if (cit == clients.end()) continue;

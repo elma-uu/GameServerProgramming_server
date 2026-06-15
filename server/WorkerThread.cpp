@@ -14,17 +14,17 @@ void disconnect(int key)
 		if (cla->is_player && cla->mState == CS_PLAYING && cla->mUsername[0] != '\0') {
 			PlayerSaveData sd = {};
 			strncpy_s(sd.username, cla->mUsername, MAX_NAME_LEN);
-			// Save town position if disconnected inside a dungeon
 			sd.x = (cla->mDungeonInstanceId >= 0) ? 1000 : cla->mX;
 			sd.y = (cla->mDungeonInstanceId >= 0) ? 1000 : cla->mY;
-			sd.hp         = cla->mHp;  sd.max_hp     = cla->mMaxHp;
-			sd.exp        = cla->mExp; sd.level       = cla->mLevel;
-			sd.str        = cla->mStr; sd.intl        = cla->mIntl;
-			sd.dex        = cla->mDex; sd.luk         = cla->mLuk;
+			sd.hp          = cla->mHp;        sd.max_hp     = cla->mMaxHp;
+			sd.exp         = cla->mExp;       sd.level      = cla->mLevel;
+			sd.str         = cla->mStr;       sd.intl       = cla->mIntl;
+			sd.dex         = cla->mDex;       sd.luk        = cla->mLuk;
 			sd.stat_points = cla->mStatPoints;
-			sd.visual_id  = cla->mVisualId;
-			sd.gold       = cla->mGold;
-			Database::SavePlayer(sd);
+			sd.visual_id   = cla->mVisualId;
+			sd.gold        = cla->mGold;
+			// Push to async queue — db_save_thread drains it, so worker thread never blocks on DB
+			g_pending_saves.push(sd);
 		}
 
 		cla->mState = CS_LOGOUT;
@@ -41,7 +41,10 @@ void disconnect(int key)
 			}
 		} else {
 			// World player: remove from sector and notify visible players.
-			sectors[cla->mSector_id].erase(key);
+			{
+				std::lock_guard<std::mutex> lk(g_sectors_mutex);
+				sectors[cla->mSector_id].erase(key);
+			}
 
 			S2C_RemoveObject removePacket;
 			removePacket.size      = sizeof(S2C_RemoveObject);
@@ -73,6 +76,8 @@ void disconnect(int key)
 
 	g_player_ids.unsafe_erase(key);
 	clients.unsafe_erase(key);
+	// Return this player slot to the free list so it can be reused
+	g_free_player_ids.push(key);
 }
 
 void worker_thread()
@@ -96,11 +101,12 @@ void worker_thread()
 		if (exp_over->m_iotype == IO_ACCEPT) {
 			SOCKET client_socket = exp_over->m_client_socket;
 
-			// Enforce MAX_PLAYERS cap
-			if (player_index >= MAX_PLAYERS) {
+			// Pop a recycled player ID from the free list
+			int my_id;
+			if (!g_free_player_ids.try_pop(my_id)) {
+				// All MAX_PLAYERS slots occupied — reject connection
 				closesocket(client_socket);
 				delete exp_over;
-				// Re-issue AcceptEx so we keep listening
 				EXP_OVER* nao = new EXP_OVER(IO_ACCEPT);
 				nao->m_client_socket = WSASocket(AF_INET, SOCK_STREAM, 0, NULL, 0, WSA_FLAG_OVERLAPPED);
 				if (nao->m_client_socket != INVALID_SOCKET)
@@ -112,8 +118,6 @@ void worker_thread()
 					delete nao;
 				continue;
 			}
-
-			int my_id = player_index++;
 			std::cout << "Client " << my_id << " connected\n";
 
 			auto new_client = std::make_shared<SESSION>(client_socket, my_id);

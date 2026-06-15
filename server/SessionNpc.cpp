@@ -97,11 +97,17 @@ void SESSION::doNpcMove()
 								if (!p || !p->mIsDead || p->mDungeonInstanceId >= 0) return;
 								p->mHp    = p->mMaxHp;
 								p->mIsDead = false;
-								sectors[p->mSector_id].erase(p->mId);
+								{
+									std::lock_guard<std::mutex> lk(g_sectors_mutex);
+									sectors[p->mSector_id].erase(p->mId);
+								}
 								p->mX = 1000;
 								p->mY = 1000;
 								p->mSector_id = get_sector_id(1000, 1000);
-								sectors[p->mSector_id].insert(p->mId);
+								{
+									std::lock_guard<std::mutex> lk(g_sectors_mutex);
+									sectors[p->mSector_id].insert(p->mId);
+								}
 								p->sendRespawn();
 								p->sendAvatarInfo();
 							}).detach();
@@ -170,6 +176,7 @@ void SESSION::doNpcMove()
 
 	int new_sector_id = get_sector_id(mX, mY);
 	if (new_sector_id != mSector_id) {
+		std::lock_guard<std::mutex> lk(g_sectors_mutex);
 		sectors[mSector_id].erase(mId);
 		sectors[new_sector_id].insert(mId);
 		mSector_id = new_sector_id;

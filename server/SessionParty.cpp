@@ -88,6 +88,8 @@ void SESSION::givePartyExp(unsigned long long kill_exp)
 			member->mExp -= req;
 			member->mLevel++;
 			member->mStatPoints += 5;
+			member->mMaxHp += 10;
+			member->mHp     = min(member->mHp + 10, member->mMaxHp);
 		}
 		member->sendAvatarInfo();
 	}

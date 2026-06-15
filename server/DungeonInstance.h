@@ -29,11 +29,11 @@ constexpr int PAT_RETURN_MS    = 500;          // hands return to origin
 constexpr int PAT_COOLDOWN_MS  = 2000;         // idle gap between patterns
 constexpr int PAT_INITIAL_MS   = 3000;         // delay before first pattern
 
-constexpr int LASER_DAMAGE     = 500;          // HP per laser hit
+constexpr int LASER_DAMAGE     = 200;          // HP per laser hit (~29% of lv60 HP=690)
 
 // Phase 2 sword fall
 constexpr int SWORD_X_STEP           = 3;     // sword every 3 tiles (x=3,6,9,...)
-constexpr int SWORD_DAMAGE           = 300;
+constexpr int SWORD_DAMAGE           = 230;   // ~33% of lv60 HP=690
 constexpr int SWORD_FALL_INTERVAL_MS = 5000;  // 5s between falls
 constexpr int SWORD_FALL_DURATION_MS = 3000;  // fall animation duration
 

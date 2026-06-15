@@ -567,6 +567,8 @@ void DungeonInstance::HandleBossDeath()
             p->mExp  -= required;
             p->mLevel++;
             p->mStatPoints += 5;
+            p->mMaxHp += 10;
+            p->mHp     = min(p->mHp + 10, p->mMaxHp);
         }
 
         // Deliver reward packets first so the client sees the numbers

@@ -100,8 +100,9 @@ bool SESSION::processPacket(unsigned char* p)
 
 		strncpy_s(mUsername, saveData.username, MAX_NAME_LEN);
 		mX = saveData.x; mY = saveData.y;
-		mHp = saveData.hp; mMaxHp = saveData.max_hp;
 		mExp = saveData.exp; mLevel = saveData.level;
+		mMaxHp = 100 + (mLevel - 1) * 10;           // recalculate from level
+		mHp    = min(saveData.hp, mMaxHp);
 		mStr = saveData.str; mIntl = saveData.intl;
 		mDex = saveData.dex; mLuk = saveData.luk;
 		mStatPoints = saveData.stat_points;
@@ -376,6 +377,8 @@ bool SESSION::processPacket(unsigned char* p)
 				mExp -= required;
 				mLevel++;
 				mStatPoints += 5;
+				mMaxHp += 10;
+				mHp     = min(mHp + 10, mMaxHp);
 			}
 			mGold += static_cast<int>(target->mLevel) * 10;
 			sendGoldUpdate();
@@ -526,6 +529,8 @@ bool SESSION::processPacket(unsigned char* p)
 					mExp -= required;
 					mLevel++;
 					mStatPoints += 5;
+					mMaxHp += 10;
+					mHp     = min(mHp + 10, mMaxHp);
 				}
 				mGold += static_cast<int>(target->mLevel) * 10;
 				givePartyExp(kill_exp);
@@ -877,6 +882,8 @@ bool SESSION::processPacket(unsigned char* p)
 				mExp -= req;
 				mLevel++;
 				mStatPoints += 5;
+				mMaxHp += 10;
+				mHp     = min(mHp + 10, mMaxHp);
 			}
 		};
 
@@ -980,6 +987,8 @@ bool SESSION::processPacket(unsigned char* p)
 		}
 
 		// ── ENTRY: leader brings whole party into a new instance ──────────────
+		if (mLevel < 60) break;  // minimum level 60 to enter boss dungeon
+
 		int dx = (int)mX - 994;
 		int dy = (int)mY - 1007;
 		if (dx * dx + dy * dy > 9) break;          // must be near Quest NPC

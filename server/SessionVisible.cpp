@@ -49,11 +49,18 @@ void SESSION::get_visible_npcs_from_sectors(std::unordered_set<int>& visible_set
 			if (it == sectors.end()) continue;
 			for (int id : it->second) {
 				if (id < NPC_ID_START) continue;
-				if (mDungeonInstanceId >= 0) continue; // dungeon players never see world NPCs
 				auto cit = clients.find(id);
 				if (cit == clients.end()) continue;
 				std::shared_ptr<SESSION> npc = cit->second;
 				if (!npc || npc->mState != CS_PLAYING) continue;
+				// Dungeon instance filtering
+				if (mDungeonInstanceId >= 0) {
+					// Dungeon player: only see NPCs in the same instance
+					if (npc->mDungeonInstanceId != mDungeonInstanceId) continue;
+				} else {
+					// World player: only see world NPCs
+					if (npc->mDungeonInstanceId >= 0) continue;
+				}
 				if (is_visible(npc->mX, npc->mY)) visible_set.insert(id);
 			}
 		}

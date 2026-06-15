@@ -44,7 +44,7 @@ void npc_timer_thread()
 void respawn_timer_thread()
 {
 	while (true) {
-		std::this_thread::sleep_for(std::chrono::seconds(60));
+		std::this_thread::sleep_for(std::chrono::seconds(30));
 
 		int revived = 0;
 		for (int i = 0; i < NUM_NPCS; ++i) {

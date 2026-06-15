@@ -29,6 +29,7 @@ void SESSION::doNpcMove()
 				if (abs(mX - tgt->mX) <= 1 && abs(mY - tgt->mY) <= 1) {
 					if (mAttackTick == 0) {
 						int damage = max(1, (int)mLevel * 2);
+						if (tgt->mInvincible) damage = 0;
 						tgt->mHp -= damage;
 
 						{
@@ -55,12 +56,14 @@ void SESSION::doNpcMove()
 						mAttackTick = 2;
 
 						if (tgt->mHp <= 0) {
+							tgt->mExp /= 2;
 							tgt->mHp = tgt->mMaxHp;
 							sectors[tgt->mSector_id].erase(tgt->mId);
 							tgt->mX = 1000; tgt->mY = 1000;
 							tgt->mSector_id = get_sector_id(tgt->mX, tgt->mY);
 							sectors[tgt->mSector_id].insert(tgt->mId);
 							tgt->sendRespawn();
+							tgt->sendAvatarInfo();
 							mTargetId = -1;
 							mChaseRemaining = 0;
 						} else {

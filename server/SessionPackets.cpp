@@ -150,6 +150,26 @@ bool SESSION::processPacket(unsigned char* p)
 	case C2S_MOVE:
 	{
 		C2S_Move* packet = reinterpret_cast<C2S_Move*>(p);
+
+		// Dungeon players use local coordinates (0..DUNGEON_SIZE-1).
+		// Bypass the world sector system entirely.
+		if (mDungeonInstanceId >= 0) {
+			short nx = packet->x;
+			short ny = packet->y;
+			if (nx < 0) nx = 0; else if (nx >= (short)DUNGEON_SIZE) nx = (short)(DUNGEON_SIZE - 1);
+			if (ny < 0) ny = 0; else if (ny >= (short)DUNGEON_SIZE) ny = (short)(DUNGEON_SIZE - 1);
+			mX         = nx;
+			mY         = ny;
+			mMove_time = packet->move_time;
+			mDirection = packet->dir;
+			auto self  = clients[mId];
+			if (self) {
+				auto inst = DungeonManager::GetInstance(mDungeonInstanceId);
+				if (inst) inst->OnPlayerMove(self);
+			}
+			break;
+		}
+
 		mX = packet->x;
 		mY = packet->y;
 		mMove_time = packet->move_time;
@@ -551,28 +571,29 @@ bool SESSION::processPacket(unsigned char* p)
 				break;
 			}
 			mScrollCount--;
-			// If in a dungeon, leave it first
+			// Individual escape: remove self from dungeon (if inside), then teleport to town.
 			if (mDungeonInstanceId >= 0) {
-				int old_inst = mDungeonInstanceId;
-				mDungeonInstanceId = -1;   // set before clearVisibility
-				bool still_occupied = false;
-				for (auto& [pid, _] : g_player_ids) {
-					if (pid == mId) continue;
-					auto it = clients.find(pid);
-					if (it != clients.end() && it->second &&
-					    it->second->mDungeonInstanceId == old_inst)
-					{ still_occupied = true; break; }
+				int old_inst       = mDungeonInstanceId;
+				mDungeonInstanceId = -1;
+				auto inst = DungeonManager::GetInstance(old_inst);
+				if (inst) {
+					inst->RemovePlayer(mId);
+					if (inst->IsEmpty()) DungeonManager::CloseInstance(old_inst);
 				}
-				if (!still_occupied) DungeonManager::CloseInstance(old_inst);
+				// Player was removed from world sectors on dungeon entry; no erase needed.
+			} else {
+				auto self = clients[mId];
+				if (self) clearVisibilityBeforeTeleport(self, mId);
+				sectors[mSector_id].erase(mId);
 			}
-			auto self = clients[mId];
-			if (self) clearVisibilityBeforeTeleport(self, mId);
-			sectors[mSector_id].erase(mId);
 			mX = 1000; mY = 1000;
 			mSector_id = get_sector_id(mX, mY);
 			sectors[mSector_id].insert(mId);
 			sendUseItemResult(true, item, mScrollCount, 0, mX, mY);
-			if (self) reEstablishVisibility(self, mId);
+			{
+				auto self = clients[mId];
+				if (self) reEstablishVisibility(self, mId);
+			}
 		}
 	}
 	break;
@@ -580,12 +601,103 @@ bool SESSION::processPacket(unsigned char* p)
 	{
 		C2S_Chat* packet = reinterpret_cast<C2S_Chat*>(p);
 		packet->message[MAX_CHAT_MSG_LEN - 1] = '\0';
+		char* msg = packet->message;
+
+		// ── GM cheat commands (start with '/') ───────────────────────────────
+		if (msg[0] == '/') {
+			// Helper: send a private server notice back to this player only
+			auto sendNotice = [&](const char* text) {
+				S2C_ChatMessage n;
+				n.size = sizeof(S2C_ChatMessage);
+				n.type = S2C_CHAT_MESSAGE;
+				n.object_id = mId;
+				strncpy_s(n.message, text, MAX_CHAT_MSG_LEN - 1);
+				n.message[MAX_CHAT_MSG_LEN - 1] = '\0';
+				doSend(n.size, reinterpret_cast<char*>(&n));
+			};
+
+			// /levelup N  ─── raise level by N, grant stat points, refill HP
+			int lvN = 0;
+			if (sscanf_s(msg, "/levelup %d", &lvN) == 1 && lvN > 0) {
+				int gained = min(lvN, 255 - (int)mLevel);
+				mLevel      = (unsigned char)(mLevel + gained);
+				int newSP   = (int)mStatPoints + gained * 5;
+				mStatPoints = (unsigned char)min(newSP, 255);
+				mMaxHp     += gained * 100;
+				mHp         = mMaxHp;
+				sendAvatarInfo();
+				sendStatInfo();
+				char buf[64];
+				sprintf_s(buf, "[GM] Level %d  HP %d", (int)mLevel, mMaxHp);
+				sendNotice(buf);
+				break;
+			}
+
+			// /showmethemoney  ─── add 999999 gold
+			if (strncmp(msg, "/showmethemoney", 15) == 0 &&
+			    (msg[15] == '\0' || msg[15] == ' ')) {
+				mGold = min(mGold + 999999, 999999999);
+				sendGoldUpdate();
+				sendNotice("[GM] +999999 Gold");
+				break;
+			}
+
+			// /tp x, y  or  /tp x y  ─── teleport to tile
+			int tpX = -1, tpY = -1;
+			if (sscanf_s(msg, "/tp %d , %d", &tpX, &tpY) != 2)
+				if (sscanf_s(msg, "/tp %d, %d", &tpX, &tpY) != 2)
+					sscanf_s(msg, "/tp %d %d",  &tpX, &tpY);
+			if (tpX >= 0 && tpY >= 0) {
+				if (mDungeonInstanceId >= 0) {
+					// Dungeon: local tile (0..DUNGEON_SIZE-1)
+					mX = (short)max(0, min(tpX, DUNGEON_SIZE - 1));
+					mY = (short)max(0, min(tpY, DUNGEON_SIZE - 1));
+					auto self = clients[mId];
+					if (self) {
+						auto inst = DungeonManager::GetInstance(mDungeonInstanceId);
+						if (inst) inst->OnPlayerMove(self);
+					}
+					sendAvatarInfo();
+				} else {
+					// World: tile (0..1999)
+					short nx = (short)max(0, min(tpX, 1999));
+					short ny = (short)max(0, min(tpY, 1999));
+					auto self = clients[mId];
+					if (self) clearVisibilityBeforeTeleport(self, mId);
+					sectors[mSector_id].erase(mId);
+					mX = nx; mY = ny;
+					mSector_id = get_sector_id(mX, mY);
+					sectors[mSector_id].insert(mId);
+					sendAvatarInfo();
+					if (self) reEstablishVisibility(self, mId);
+				}
+				char buf[48];
+				sprintf_s(buf, "[GM] Teleported to (%d, %d)", (int)mX, (int)mY);
+				sendNotice(buf);
+				break;
+			}
+
+			// /무적  ─── toggle invincibility
+			// Support both CP949 (0xB9AB=무, 0xC0FB=적) and UTF-8 encodings
+			const char* inv_cp949 = "/\xB9\xAB\xC0\xFB";   // /무적 in CP949
+			const char* inv_utf8  = "/\xEB\xAC\xB4\xEC\xA0\x81"; // /무적 in UTF-8
+			bool isInvCmd = (strncmp(msg, inv_cp949, 5) == 0 && (msg[5] == '\0' || msg[5] == ' '))
+			             || (strncmp(msg, inv_utf8,  7) == 0 && (msg[7] == '\0' || msg[7] == ' '));
+			if (isInvCmd) {
+				mInvincible = !mInvincible;
+				sendNotice(mInvincible ? "[GM] Invincible ON" : "[GM] Invincible OFF");
+				break;
+			}
+
+			// Unknown slash command: fall through to broadcast it as normal chat
+		}
+		// ─────────────────────────────────────────────────────────────────────
 
 		S2C_ChatMessage chatPacket;
 		chatPacket.size = sizeof(S2C_ChatMessage);
 		chatPacket.type = S2C_CHAT_MESSAGE;
 		chatPacket.object_id = mId;
-		strncpy_s(chatPacket.message, packet->message, static_cast<size_t>(MAX_CHAT_MSG_LEN - 1));
+		strncpy_s(chatPacket.message, msg, static_cast<size_t>(MAX_CHAT_MSG_LEN - 1));
 		chatPacket.message[MAX_CHAT_MSG_LEN - 1] = '\0';
 
 		doSend(chatPacket.size, reinterpret_cast<char*>(&chatPacket));
@@ -602,7 +714,7 @@ bool SESSION::processPacket(unsigned char* p)
 			pl->doSend(chatPacket.size, reinterpret_cast<char*>(&chatPacket));
 		}
 
-		std::cout << "[Chat] " << mUsername << ": " << packet->message << std::endl;
+		std::cout << "[Chat] " << mUsername << ": " << msg << std::endl;
 	}
 	break;
 	case C2S_PARTY_CREATE:
@@ -715,79 +827,91 @@ bool SESSION::processPacket(unsigned char* p)
 	case C2S_DUNGEON_ENTER:
 	{
 		if (mState != CS_PLAYING) break;
+		if (mPartyId < 0) break;
 
-		// ── Exit: player is already in a dungeon ──────────────────────────────
+		std::vector<int> members = PartyManager::GetMembers(mPartyId);
+		if (members.empty() || members[0] != mId) break;  // party leader only
+
+		// ── EXIT: leader takes whole party back to world ──────────────────────
 		if (mDungeonInstanceId >= 0) {
 			int old_inst = mDungeonInstanceId;
-			mDungeonInstanceId = -1;   // set before clearVisibility so NPC filter works
+			auto inst = DungeonManager::GetInstance(old_inst);
 
-			auto self = clients[mId];
-			if (self) clearVisibilityBeforeTeleport(self, mId);
-
-			sectors[mSector_id].erase(mId);
-			mX = 1000; mY = 1000;
-			mSector_id = get_sector_id(mX, mY);
-			sectors[mSector_id].insert(mId);
-
-			// Tell client about new position first, then re-establish visibility
-			S2C_DungeonEnter pkt;
-			pkt.size        = sizeof(S2C_DungeonEnter);
-			pkt.type        = S2C_DUNGEON_ENTER;
-			pkt.entered     = 0;
-			pkt.instance_id = -1;
-			pkt.x           = mX;
-			pkt.y           = mY;
-			doSend(pkt.size, reinterpret_cast<char*>(&pkt));
-
-			if (self) reEstablishVisibility(self, mId);
-
-			// Close instance if no other party member remains inside
-			bool still_occupied = false;
-			for (auto& [pid, _] : g_player_ids) {
-				if (pid == mId) continue;
-				auto it = clients.find(pid);
-				if (it == clients.end() || !it->second) continue;
-				if (it->second->mDungeonInstanceId == old_inst) {
-					still_occupied = true;
-					break;
-				}
+			// Collect members currently in this instance
+			std::vector<std::shared_ptr<SESSION>> in_dungeon;
+			for (int mid : members) {
+				auto mit = clients.find(mid);
+				if (mit == clients.end() || !mit->second) continue;
+				if (mit->second->mDungeonInstanceId == old_inst)
+					in_dungeon.push_back(mit->second);
 			}
-			if (!still_occupied) DungeonManager::CloseInstance(old_inst);
+
+			// Remove each member from the dungeon instance (sends REMOVE_OBJECT)
+			for (auto& member : in_dungeon) {
+				if (inst) inst->RemovePlayer(member->mId);
+				member->mDungeonInstanceId = -1;
+				member->mX         = 1000;
+				member->mY         = 1000;
+				member->mSector_id = get_sector_id(1000, 1000);
+				sectors[member->mSector_id].insert(member->mId);
+
+				S2C_DungeonEnter pkt;
+				pkt.size        = sizeof(S2C_DungeonEnter);
+				pkt.type        = S2C_DUNGEON_ENTER;
+				pkt.entered     = 0;
+				pkt.instance_id = -1;
+				pkt.x           = 1000;
+				pkt.y           = 1000;
+				member->doSend(pkt.size, reinterpret_cast<char*>(&pkt));
+			}
+
+			// Re-establish world visibility for each returned member
+			for (auto& member : in_dungeon)
+				reEstablishVisibility(member, member->mId);
+
+			DungeonManager::CloseInstance(old_inst);
+
+			std::cout << "[Dungeon] Party " << mPartyId
+			          << " exited instance " << old_inst << "\n";
 			break;
 		}
 
-		// ── Entry: party leader triggers dungeon for whole party ──────────────
+		// ── ENTRY: leader brings whole party into a new instance ──────────────
 		int dx = (int)mX - 994;
 		int dy = (int)mY - 1007;
-		if (dx * dx + dy * dy > 9) break;          // not near Quest NPC
+		if (dx * dx + dy * dy > 9) break;          // must be near Quest NPC
 
-		if (mPartyId < 0) break;                   // must be in a party
-
-		std::vector<int> members = PartyManager::GetMembers(mPartyId);
-		if (members.empty() || members[0] != mId) break; // must be party leader
-
-		if (DungeonManager::GetInstanceForParty(mPartyId) >= 0) break; // already active
+		if (DungeonManager::GetInstanceForParty(mPartyId) >= 0) break; // already inside
 
 		int inst_id = DungeonManager::CreateInstance(mPartyId);
-		if (inst_id < 0) break;  // no free instance slot
+		if (inst_id < 0) break;
 
-		short spawn_x = DungeonManager::GetSpawnX(inst_id);
-		short spawn_y = DungeonManager::GetSpawnY(inst_id);
+		auto inst = DungeonManager::GetInstance(inst_id);
+		if (!inst) { DungeonManager::CloseInstance(inst_id); break; }
 
+		// Collect and teleport all online party members into the dungeon
+		// Local spawn coordinates: tile (1, 15) -- independent of world space
+		const short spawn_x = DungeonManager::SpawnX();   // = 1
+		const short spawn_y = DungeonManager::SpawnY();   // = 15
+
+		std::vector<std::shared_ptr<SESSION>> entering;
 		for (int mid : members) {
 			auto mit = clients.find(mid);
 			if (mit == clients.end() || !mit->second) continue;
 			std::shared_ptr<SESSION> member = mit->second;
 			if (!member->is_player || member->mState != CS_PLAYING) continue;
 
+			// Clear world visibility (sends REMOVE_OBJECT to/from world players)
 			clearVisibilityBeforeTeleport(member, mid);
 
+			// Remove from world sector; dungeon players are NOT in any world sector
 			sectors[member->mSector_id].erase(mid);
+
+			// Set dungeon-local position (NOT world offset)
 			member->mX                 = spawn_x;
 			member->mY                 = spawn_y;
-			member->mSector_id         = get_sector_id(spawn_x, spawn_y);
-			sectors[member->mSector_id].insert(mid);
 			member->mDungeonInstanceId = inst_id;
+			// mSector_id left as stale world value; harmless since player is in no sector
 
 			S2C_DungeonEnter pkt;
 			pkt.size        = sizeof(S2C_DungeonEnter);
@@ -797,19 +921,16 @@ bool SESSION::processPacket(unsigned char* p)
 			pkt.x           = spawn_x;
 			pkt.y           = spawn_y;
 			member->doSend(pkt.size, reinterpret_cast<char*>(&pkt));
+
+			entering.push_back(member);
 		}
 
-		// Second pass: establish mutual visibility between all members now in the dungeon
-		for (int mid : members) {
-			auto mit = clients.find(mid);
-			if (mit == clients.end() || !mit->second) continue;
-			std::shared_ptr<SESSION> member = mit->second;
-			if (member->mDungeonInstanceId != inst_id) continue;
-			reEstablishVisibility(member, mid);
-		}
+		// Add to instance: DungeonInstance sends boss + partner ADD_OBJECT packets
+		for (auto& member : entering)
+			inst->AddPlayer(member);
 
 		std::cout << "[Dungeon] Party " << mPartyId << " entered instance " << inst_id
-			<< " at (" << spawn_x << "," << spawn_y << ")\n";
+		          << " (local spawn " << spawn_x << "," << spawn_y << ")\n";
 	}
 	break;
 	default:

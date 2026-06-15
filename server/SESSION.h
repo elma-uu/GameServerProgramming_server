@@ -58,6 +58,9 @@ public:
 	// Dungeon instance (-1 = main world)
 	int mDungeonInstanceId = -1;
 
+	// GM cheat: player cannot take damage when true
+	bool mInvincible = false;
+
 	// Quest progress (player only)
 	struct QuestEntry {
 		unsigned char state    = 0;  // 0=none 1=in_progress 2=complete 3=done

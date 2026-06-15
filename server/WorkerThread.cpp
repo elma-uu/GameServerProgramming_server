@@ -28,7 +28,36 @@ void disconnect(int key)
 		}
 
 		cla->mState = CS_LOGOUT;
-		sectors[cla->mSector_id].erase(key);
+
+		if (cla->mDungeonInstanceId >= 0) {
+			// Dungeon player: remove from instance, which sends REMOVE_OBJECT to partners.
+			// Players were removed from world sectors on dungeon entry, so no sector erase.
+			int old_inst = cla->mDungeonInstanceId;
+			cla->mDungeonInstanceId = -1;
+			auto inst = DungeonManager::GetInstance(old_inst);
+			if (inst) {
+				inst->RemovePlayer(key);
+				if (inst->IsEmpty()) DungeonManager::CloseInstance(old_inst);
+			}
+		} else {
+			// World player: remove from sector and notify visible players.
+			sectors[cla->mSector_id].erase(key);
+
+			S2C_RemoveObject removePacket;
+			removePacket.size      = sizeof(S2C_RemoveObject);
+			removePacket.type      = S2C_REMOVE_OBJECT;
+			removePacket.object_id = key;
+
+			auto visible_copy = cla->m_visible_players;
+			for (auto& other : visible_copy) {
+				std::shared_ptr<SESSION> o = clients[other];
+				if (!o || o->mState != CS_PLAYING) continue;
+				o->m_visible_mutex.lock();
+				o->m_visible_players.erase(key);
+				o->m_visible_mutex.unlock();
+				o->doSend(removePacket.size, reinterpret_cast<char*>(&removePacket));
+			}
+		}
 
 		if (cla->mPartyId >= 0) {
 			int partyId = cla->mPartyId;
@@ -37,38 +66,9 @@ void disconnect(int key)
 			broadcastPartyUpdate(partyId);
 		}
 
-		S2C_RemoveObject removePacket;
-		removePacket.size      = sizeof(S2C_RemoveObject);
-		removePacket.type      = S2C_REMOVE_OBJECT;
-		removePacket.object_id = key;
-
-		auto visible_copy = cla->m_visible_players;
-		for (auto& other : visible_copy) {
-			std::shared_ptr<SESSION> o = clients[other];
-			if (!o || o->mState != CS_PLAYING) continue;
-			o->m_visible_mutex.lock();
-			o->m_visible_players.erase(key);
-			o->m_visible_mutex.unlock();
-			o->doSend(removePacket.size, reinterpret_cast<char*>(&removePacket));
-		}
 		if (cla->mClient != INVALID_SOCKET)
 			closesocket(cla->mClient);
 		cla->mClient = INVALID_SOCKET;
-	}
-	// Close dungeon instance if this was the last occupant
-	if (cla && cla->mDungeonInstanceId >= 0) {
-		int inst = cla->mDungeonInstanceId;
-		bool still_occupied = false;
-		for (auto& [pid, _] : g_player_ids) {
-			if (pid == key) continue;
-			auto it = clients.find(pid);
-			if (it == clients.end() || !it->second) continue;
-			if (it->second->mDungeonInstanceId == inst) {
-				still_occupied = true;
-				break;
-			}
-		}
-		if (!still_occupied) DungeonManager::CloseInstance(inst);
 	}
 
 	g_player_ids.unsafe_erase(key);
